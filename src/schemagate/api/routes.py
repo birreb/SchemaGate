@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
 from schemagate.errors import (
+    DatabaseUnavailableError,
     ExtractionError,
     MalformedDocumentError,
     TableNotFoundError,
@@ -82,6 +83,9 @@ async def extract(
         raise HTTPException(status_code=415, detail=str(error)) from error
     except (MalformedDocumentError, UnsupportedColumnTypeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except DatabaseUnavailableError as error:
+        # Neither the caller's mistake nor a defect in us: the database is down.
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except ExtractionError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 

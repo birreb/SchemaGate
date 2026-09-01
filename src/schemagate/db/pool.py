@@ -2,6 +2,7 @@ import asyncpg
 
 from schemagate.config import Settings
 from schemagate.db.introspect import introspect
+from schemagate.errors import DatabaseUnavailableError
 from schemagate.schema.spec import TableSchema
 
 
@@ -20,16 +21,34 @@ class PoolSchemas:
 
     async def fetch(self, connection: str, schema: str, table: str) -> TableSchema:
         pool = await self._pool(connection)
-        async with pool.acquire() as held:
-            return await introspect(held, schema, table)
+        try:
+            async with pool.acquire() as held:
+                return await introspect(held, schema, table)
+        except (OSError, asyncpg.PostgresError) as error:
+            raise self._unreachable(connection, error) from error
 
     async def _pool(self, connection: str) -> "asyncpg.Pool[asyncpg.Record]":
         if connection not in self._pools:
             # dsn() raises for a name that is not configured, which is what
             # keeps a caller from reaching a database nobody registered.
             dsn = self._settings.dsn(connection)
-            self._pools[connection] = await asyncpg.create_pool(dsn, min_size=1, max_size=8)
+            try:
+                self._pools[connection] = await asyncpg.create_pool(dsn, min_size=1, max_size=8)
+            except (OSError, asyncpg.PostgresError) as error:
+                raise self._unreachable(connection, error) from error
         return self._pools[connection]
+
+    def _unreachable(self, connection: str, error: Exception) -> DatabaseUnavailableError:
+        """Name the connection, never the string behind it.
+
+        The reason a database is unreachable is worth reporting. The credentials
+        used to try are not, and an error body is one of the easiest places for
+        them to escape.
+        """
+        return DatabaseUnavailableError(
+            f"Cannot reach the database registered as {connection!r}: "
+            f"{type(error).__name__}: {error}"
+        )
 
     async def close(self) -> None:
         for pool in self._pools.values():

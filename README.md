@@ -147,7 +147,7 @@ Multipart form.
 
 `200` with `status` of `ok` or `flagged`. `400` unknown connection, `404` unknown table,
 `413` upload too large, `415` unsupported file type, `422` unreadable document, `502` the model
-server failed.
+server failed, `503` the database is unreachable.
 
 Interactive docs at `/docs`. Liveness at `/health`.
 

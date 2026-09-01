@@ -191,3 +191,24 @@ def test_the_playground_needs_no_external_resources() -> None:
         "the service is meant to run inside a private network, so a page that "
         "fetches a font or a script from the internet would not load there"
     )
+
+
+def test_an_unreachable_database_is_not_an_internal_error() -> None:
+    from schemagate.errors import DatabaseUnavailableError
+
+    class DownSchemas:
+        async def fetch(self, connection: str, schema: str, table: str) -> TableSchema:
+            raise DatabaseUnavailableError(f"Cannot reach the database for {connection!r}.")
+
+    app = create_app(
+        settings=Settings(connections={"primary": DSN}),
+        schemas=DownSchemas(),
+        extractor=StubExtractor(),
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).post("/v1/extract", **upload())
+
+    assert response.status_code == 503, (
+        "the database being down is not the caller's fault and not a bug in us"
+    )
+    assert "password" not in response.text

@@ -28,3 +28,7 @@ class UnsupportedFileTypeError(SchemaGateError):
 
 class ExtractionError(SchemaGateError):
     """A model failed to return usable output."""
+
+
+class DatabaseUnavailableError(SchemaGateError):
+    """A configured database could not be reached."""
