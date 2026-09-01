@@ -172,16 +172,30 @@ without touching the pipeline, and lets tests run without the native wheel insta
 ### 4. Extract
 
 An `Extractor` protocol with a single method, taking markdown or images plus the compiled
-model and returning an instance of it. Two implementations:
+model and returning an instance of it. Implementations, in build order:
 
-- Anthropic: `client.messages.parse(model="claude-opus-5", output_format=Model)`, reading
+- **Stub.** Deterministic, offline, free. Returns canned rows for a given fixture. This is the
+  first implementation because the test suite needs it: a test that calls a paid API is a test
+  that stops being run. Milestones 1 through 5 exercise the whole pipeline against it.
+- **Ollama.** `format` takes a JSON Schema directly and Ollama constrains generation with
+  XGrammar. Constrained decoding happens at token sampling inside a runtime the operator
+  controls, which is a stronger guarantee than a hosted promise, and it costs nothing to run
+  in development. It is also what makes "runs entirely inside your network" true of the whole
+  pipeline rather than only the parsing half.
+- **Anthropic.** `client.messages.parse(model="claude-opus-5", output_format=Model)`, reading
   `response.parsed_output`. Check `stop_reason` for `refusal` before touching content.
-- OpenAI: `client.chat.completions.parse(response_format=Model)`, reading `message.parsed`
+- **OpenAI.** `client.chat.completions.parse(response_format=Model)`, reading `message.parsed`
   and handling `message.refusal`.
 
-The two SDKs disagree on method name, parameter name, result attribute, and how a refusal is
+The SDKs disagree on method name, parameter name, result attribute, and how a refusal is
 signalled. That is precisely why the protocol exists instead of a set of
 `if provider == ...` branches spread through the pipeline.
+
+**Schema compliance is not accuracy.** A grammar guarantees the shape of the output, not the
+truth of it, and a small local model returns well-formed wrong answers more often than a
+frontier model does. This is the reason the validation gate is built before the first real
+extractor rather than after it. Without the gate, the local path produces confident garbage
+that passes every type check.
 
 The system prompt is static and identical across requests so that it caches. The schema and
 the document go after it. Anything that varies per request (timestamps, request ids) stays
@@ -380,25 +394,32 @@ database, because introspection verified against a mock proves nothing.
 
 Each one ends with something that runs and is tested.
 
-0. Repository skeleton: packaging, config, lint, types, CI, an app that starts and answers
-   `/health`.
+Development is test first. Each unit starts as a failing test that names the behaviour, then
+the smallest implementation that passes it.
+
+0. **Done.** Repository skeleton: packaging, configuration, lint, types, CI, an app that starts
+   and answers `/health`.
 1. Introspection and the model factory. Tested against a Postgres container with a table
    covering every type in the mapping above, enum labels, and column comments.
 2. Tabular fast path. CSV and spreadsheets to validated rows with no model call.
 3. Native PDF path. `pdf-inspector` behind the protocol, thread-offloaded, markdown out.
-4. Extraction with one provider, Anthropic first. Container model, refusal handling, static
-   cacheable prefix.
-5. Validation gate. Coercion, database constraints, configurable arithmetic rules.
+4. Validation gate. Coercion, database constraints, configurable arithmetic rules. Pure logic,
+   no model, so it is fully testable on its own.
+5. First real extractor, Ollama. Container model, schema-constrained generation, and the
+   validation gate already in place to catch well-formed wrong answers.
 6. Docker image, compose file, and the README. Someone else runs it against their own database
    without asking a question.
-7. Second provider, which is what confirms the protocol was the right shape.
+7. Hosted extractors, Anthropic then OpenAI. Two more implementations of the same protocol,
+   which is what proves the protocol was the right shape.
 8. Local selective OCR for scanned PDFs, plus the bundled-model image tag.
 9. Image input, with normalization and vision as an opt-in fallback.
 10. Optional commit to the database, off by default.
 
-Milestone 6 sits deliberately in the middle rather than at the end. A thing that cannot be
-deployed by someone else is not finished, and finding that out after ten milestones is worse
-than finding it out after five.
+Two orderings here are deliberate. The validation gate precedes the first real extractor,
+because a grammar-constrained local model produces well-formed wrong answers and the gate is
+what catches them. And milestone 6 sits in the middle rather than at the end, because software
+nobody else can deploy is not finished, and learning that after ten milestones is worse than
+learning it after five.
 
 ## Settled
 
@@ -407,13 +428,12 @@ than finding it out after five.
   comments.
 - Native provider SDKs over Instructor for the core path, for the reasons recorded above.
 - Per file type, the best available parser rather than one generic reader.
-
-## Open questions
-
-1. Which provider should be implemented first? The plan assumes Anthropic.
-2. Connection as a config key, as planned, or per-request DSNs for a multi-tenant deployment?
-   If the latter, that needs an allowlist and a threat model before it ships. This is the last
-   decision that changes the shape of the API surface.
-3. Licence for the repository. Apache 2.0 is the usual choice for developer infrastructure
-   meant to be adopted inside companies, since it grants patent rights explicitly and legal
-   departments already know it.
+- Extractor order: stub for tests, then Ollama, then the hosted providers.
+- Connections are named in configuration and referenced by key. Per-request DSNs would let any
+  caller point the service at an arbitrary host on the deploying network, so they stay out
+  until a real multi-tenant requirement arrives, and then only behind an allowlist.
+- Apache 2.0. The usual choice for developer infrastructure adopted inside companies, since it
+  grants patent rights explicitly and legal review already knows it.
+- Environment variables only, no dotenv in the settings object. Compose reads `env_file`
+  natively and `uv run --env-file` covers local development, so reading `.env` inside
+  `Settings` would buy nothing and make tests non-hermetic.
