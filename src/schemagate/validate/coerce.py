@@ -79,7 +79,9 @@ def _coerce_cell(
     text: str | None, column: ColumnSpec, row: int, convention: str | None = None
 ) -> tuple[Any, Failure | None]:
     if text is None:
-        if column.nullable:
+        # A default satisfies NOT NULL on the database's side, so a document
+        # that says nothing about such a column has not done anything wrong.
+        if column.nullable or column.has_default:
             return None, None
         return None, Failure(
             row=row,

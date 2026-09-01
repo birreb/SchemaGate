@@ -64,3 +64,30 @@ def test_upload_limit_defaults_and_is_overridable(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("SCHEMAGATE_MAX_UPLOAD_BYTES", "2048")
 
     assert Settings().max_upload_bytes == 2048
+
+
+def test_a_connection_can_be_given_without_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SCHEMAGATE_CONNECTIONS", raising=False)
+    monkeypatch.setenv("SCHEMAGATE_CONNECTIONS__primary", DSN)
+
+    assert Settings().dsn("primary") == DSN, (
+        "JSON in an env file has to be quoted or tools refuse to parse it, "
+        "so a form with no braces or quotes at all has to work too"
+    )
+
+
+def test_several_connections_without_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SCHEMAGATE_CONNECTIONS", raising=False)
+    monkeypatch.setenv("SCHEMAGATE_CONNECTIONS__primary", DSN)
+    monkeypatch.setenv("SCHEMAGATE_CONNECTIONS__reporting", "postgresql://r@h/db")
+
+    settings = Settings()
+
+    assert settings.dsn("primary") == DSN
+    assert settings.dsn("reporting") == "postgresql://r@h/db"
+
+
+def test_the_json_form_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SCHEMAGATE_CONNECTIONS", json.dumps({"primary": DSN}))
+
+    assert Settings().dsn("primary") == DSN

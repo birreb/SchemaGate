@@ -28,7 +28,8 @@ CREATE TABLE {SCHEMA}.invoices (
     total          numeric(12, 2) GENERATED ALWAYS AS (subtotal + tax) STORED,
     tags           text[],
     issued_on      date NOT NULL,
-    created_at     timestamptz NOT NULL DEFAULT now()
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    currency       text NOT NULL DEFAULT 'EUR'
 );
 
 COMMENT ON COLUMN {SCHEMA}.invoices.vat_id IS 'Seller VAT number, not the buyer';
@@ -57,6 +58,7 @@ async def test_reads_every_column_in_declaration_order(invoices: TableSchema) ->
         "tags",
         "issued_on",
         "created_at",
+        "currency",
     ]
 
 
@@ -101,6 +103,7 @@ async def test_the_database_keeps_the_columns_it_owns(invoices: TableSchema) -> 
         "tax",
         "tags",
         "issued_on",
+        "currency",
     ]
 
 
@@ -152,3 +155,19 @@ async def test_integer_columns_report_a_scale_of_zero(invoices: TableSchema) -> 
 async def test_non_numeric_columns_report_no_scale(invoices: TableSchema) -> None:
     assert column(invoices, "invoice_number").numeric_scale is None
     assert column(invoices, "issued_on").numeric_scale is None
+
+
+async def test_a_computed_default_belongs_to_the_database(invoices: TableSchema) -> None:
+    created_at = column(invoices, "created_at")
+
+    assert created_at.default_expr == "now()"
+    assert created_at.is_extractable is False
+
+
+async def test_a_literal_default_is_only_a_fallback(invoices: TableSchema) -> None:
+    currency = column(invoices, "currency")
+
+    assert currency.default_expr.startswith("'EUR'")  # type: ignore[union-attr]
+    assert currency.is_extractable is True, (
+        "the database has a fallback, but a document that names a currency should still be heard"
+    )

@@ -93,13 +93,17 @@ Environment variables only. No config file.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SCHEMAGATE_CONNECTIONS` | required | Named connections as JSON, `{"primary": "postgresql://..."}`. Callers reference a name; a connection string is never accepted over HTTP. |
+| `SCHEMAGATE_CONNECTIONS__<name>` | at least one | One variable per connection, for example `SCHEMAGATE_CONNECTIONS__primary=postgresql://...`. Callers reference the name; a connection string is never accepted over HTTP. |
 | `SCHEMAGATE_MAX_UPLOAD_BYTES` | `10485760` | Largest accepted upload. Enforced before the body is read. |
 | `SCHEMAGATE_OLLAMA_HOST` | unset | Where a model server is listening, for example `http://localhost:11434`. Unset, documents needing a model are refused rather than sent anywhere. |
 | `SCHEMAGATE_OLLAMA_MODEL` | `qwen3` | Model to extract with. |
 | `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
 
 Connection strings are held as secrets and never appear in a log line or an error body.
+
+`SCHEMAGATE_RULES` is JSON because it has structure, and in an env file it must be wrapped in
+single quotes. Without them `uv run --env-file` refuses to parse the line. Connections avoid
+the problem entirely by being one variable each.
 
 ## What it reads
 

@@ -19,20 +19,46 @@ class ColumnSpec:
     # separator could be grouping or decimal.
     numeric_scale: int | None = None
     has_default: bool = False
+    default_expr: str | None = None
     is_generated: bool = False
     is_identity: bool = False
 
     @property
     def is_extractable(self) -> bool:
-        """Whether a model should be asked to supply this column.
+        """Whether a document should be asked to supply this column.
 
-        Generated and identity columns belong to the database. So does a column
-        that is `NOT NULL` with a default, since the database already has an
-        answer and inventing one can only disagree with it.
+        Generated and identity columns belong to the database outright: they
+        cannot be written even if a document had a value for them.
+
+        A default is subtler, and treating every default the same was wrong. A
+        column defaulting to `now()` or `nextval(...)` holds a value the
+        database computes, and a model inventing one can only disagree with it.
+        A column defaulting to `'draft'` holds a fallback for when nobody says
+        otherwise, and a document that does say otherwise should be heard.
         """
         if self.is_generated or self.is_identity:
             return False
-        return not (self.has_default and not self.nullable)
+        return not (self.has_default and self.default_is_computed)
+
+    @property
+    def default_is_computed(self) -> bool:
+        """Whether the default is a value the database makes rather than a fallback.
+
+        A literal starts with a quote, a digit, a sign, or one of the SQL words
+        that are values in themselves. Anything else is a function call or a
+        keyword like CURRENT_TIMESTAMP. An unrecorded default is treated as
+        computed, since guessing the cautious way round costs a column and
+        guessing the other way corrupts one.
+        """
+        if not self.has_default:
+            return False
+        expression = (self.default_expr or "").strip()
+        if not expression:
+            return True
+        return not (
+            expression[0] in "'\"0123456789-+."
+            or expression.split("::")[0].strip().lower() in {"true", "false", "null"}
+        )
 
 
 @dataclass(frozen=True, slots=True)

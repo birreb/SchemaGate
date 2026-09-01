@@ -20,7 +20,13 @@ class Settings(BaseSettings):
     through an accidental repr of this object.
     """
 
-    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, extra="ignore")
+    # The nested delimiter lets a connection be given as
+    # SCHEMAGATE_CONNECTIONS__primary=postgresql://... which contains no braces
+    # or quotes and so cannot be mangled by an env file parser. The JSON form
+    # still works, but it has to be quoted, and uv refuses to read it otherwise.
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX, env_nested_delimiter="__", extra="ignore"
+    )
 
     connections: dict[str, SecretStr]
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES

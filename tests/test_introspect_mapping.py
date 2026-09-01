@@ -14,6 +14,7 @@ def record(**overrides: Any) -> dict[str, Any]:
         "max_length": None,
         "numeric_scale": None,
         "has_default": False,
+        "default_expr": None,
         "is_generated": False,
         "is_identity": False,
     }

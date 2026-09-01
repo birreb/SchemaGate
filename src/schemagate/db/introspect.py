@@ -38,12 +38,16 @@ SELECT
         THEN (a.atttypmod - 4) & 65535
     END                                          AS numeric_scale,
     a.atthasdef                                  AS has_default,
+    -- The default expression itself, because a default that is computed
+    -- belongs to the database while a literal fallback does not.
+    pg_get_expr(d.adbin, d.adrelid)              AS default_expr,
     a.attgenerated <> ''                         AS is_generated,
     a.attidentity <> ''                          AS is_identity
 FROM pg_attribute a
 JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_type t ON t.oid = a.atttypid
+LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 JOIN pg_type base ON base.oid = CASE
     WHEN t.typelem <> 0 AND t.typlen = -1 THEN t.typelem
     ELSE t.oid
@@ -104,6 +108,7 @@ def to_column_spec(record: Row) -> ColumnSpec:
         max_length=record["max_length"],
         numeric_scale=record["numeric_scale"],
         has_default=record["has_default"],
+        default_expr=record["default_expr"],
         is_generated=record["is_generated"],
         is_identity=record["is_identity"],
     )

@@ -270,3 +270,22 @@ def test_the_refusal_explains_what_would_resolve_it() -> None:
     detail = failure_for("1,234", column(data_type="numeric")).detail
 
     assert "scale" in detail.lower(), "the message should point at the fix"
+
+
+def test_a_missing_value_is_not_a_failure_when_the_column_has_a_fallback() -> None:
+    spec = column("status", "text", nullable=False, has_default=True, default_expr="'draft'::text")
+
+    _, failures = coerce_rows(({"status": None},), schema(spec))
+
+    assert failures == (), (
+        "the column is NOT NULL but the database has a default for it, so a "
+        "document that says nothing is not an error"
+    )
+
+
+def test_a_missing_value_is_still_a_failure_without_a_fallback() -> None:
+    spec = column("supplier", "text", nullable=False)
+
+    _, failures = coerce_rows(({"supplier": None},), schema(spec))
+
+    assert [f.rule for f in failures] == ["not_null"]
