@@ -1,5 +1,8 @@
 # Build and runtime are separated so the image ships the virtualenv without uv,
 # the lockfile, or a compiler toolchain.
+#
+# Build with --build-arg EXTRAS=ocr to include local OCR for scanned
+# documents. It adds tens of megabytes, which most deployments never need.
 FROM python:3.14-slim AS build
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
@@ -13,10 +16,11 @@ WORKDIR /app
 # Dependencies resolve from the lockfile alone, so this layer is cached until
 # the lockfile itself changes rather than on every source edit.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra server
+ARG EXTRAS=server
+RUN uv sync --frozen --no-dev --no-install-project --extra $EXTRAS
 
 COPY src ./src
-RUN uv sync --frozen --no-dev --extra server
+RUN uv sync --frozen --no-dev --extra $EXTRAS
 
 
 FROM python:3.14-slim AS runtime
