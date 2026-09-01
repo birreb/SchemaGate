@@ -7,88 +7,58 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #fbfbfa;
-    --panel: #ffffff;
-    --ink: #16171a;
-    --muted: #6b7078;
-    --line: #e3e4e6;
-    --accent: #1b6bd6;
-    --ok: #17794a;
-    --flag: #9a5b00;
-    --flag-bg: #fdf5e7;
+    --bg: #fbfbfa; --panel: #ffffff; --ink: #16171a; --muted: #6b7078;
+    --line: #e3e4e6; --accent: #1b6bd6; --ok: #17794a;
+    --flag: #9a5b00; --flag-bg: #fdf5e7; --bad: #c0392b;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #131417;
-      --panel: #1a1c20;
-      --ink: #e8e9ea;
-      --muted: #9aa0a8;
-      --line: #2b2e34;
-      --accent: #6ea8fe;
-      --ok: #5ec98f;
-      --flag: #e3b341;
-      --flag-bg: #2a2415;
+      --bg: #131417; --panel: #1a1c20; --ink: #e8e9ea; --muted: #9aa0a8;
+      --line: #2b2e34; --accent: #6ea8fe; --ok: #5ec98f;
+      --flag: #e3b341; --flag-bg: #2a2415; --bad: #f0776c;
     }
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
+    margin: 0; background: var(--bg); color: var(--ink);
     font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 880px; margin: 0 auto; padding: 56px 24px 96px; }
+  main { max-width: 900px; margin: 0 auto; padding: 56px 24px 96px; }
 
-  header { margin-bottom: 40px; }
-  h1 {
-    margin: 0 0 6px;
-    font-size: 20px;
-    font-weight: 620;
-    letter-spacing: -0.01em;
-  }
+  header { margin-bottom: 36px; }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 620; letter-spacing: -0.01em; }
   header p { margin: 0; color: var(--muted); font-size: 14px; }
 
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 14px;
-    margin-bottom: 18px;
+  fieldset { border: 0; margin: 0 0 20px; padding: 0; }
+  legend {
+    padding: 0 0 10px; font-size: 11px; font-weight: 600; color: var(--muted);
+    letter-spacing: .06em; text-transform: uppercase;
   }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 13px; }
   label { display: block; }
   .name {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 12px;
-    font-weight: 550;
-    color: var(--muted);
-    letter-spacing: 0.02em;
+    display: block; margin-bottom: 5px; font-size: 11.5px; font-weight: 550;
+    color: var(--muted); letter-spacing: .02em;
   }
-  input[type="text"] {
-    width: 100%;
-    padding: 9px 11px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: var(--panel);
-    color: var(--ink);
-    font: inherit;
-    font-family: var(--mono);
-    font-size: 13.5px;
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--panel); color: var(--ink);
+    font: inherit; font-family: var(--mono); font-size: 13.5px;
   }
-  input[type="text"]:focus {
-    outline: none;
-    border-color: var(--accent);
+  select { cursor: pointer; }
+  input:focus, select:focus {
+    outline: none; border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
   }
+  input::placeholder { color: var(--muted); opacity: .6; }
+  [hidden] { display: none !important; }
+  .aside { margin-top: 7px; font-size: 12px; color: var(--muted); }
 
   #drop {
-    border: 1.5px dashed var(--line);
-    border-radius: 10px;
-    background: var(--panel);
-    padding: 34px 20px;
-    text-align: center;
-    cursor: pointer;
+    border: 1.5px dashed var(--line); border-radius: 10px; background: var(--panel);
+    padding: 32px 20px; text-align: center; cursor: pointer;
     transition: border-color .12s, background .12s;
   }
   #drop:hover, #drop.over { border-color: var(--accent); }
@@ -99,56 +69,26 @@
 
   .actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
   button {
-    padding: 9px 18px;
-    border: 0;
-    border-radius: 7px;
-    background: var(--accent);
-    color: #fff;
-    font: inherit;
-    font-weight: 550;
-    font-size: 14px;
-    cursor: pointer;
+    padding: 9px 18px; border: 0; border-radius: 7px; background: var(--accent);
+    color: #fff; font: inherit; font-weight: 550; font-size: 14px; cursor: pointer;
   }
   button:disabled { opacity: .45; cursor: default; }
   .hint { color: var(--muted); font-size: 13px; }
 
-  section { margin-top: 40px; }
-  section[hidden] { display: none; }
-
-  .summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-  .badge {
-    padding: 3px 9px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .02em;
-  }
+  section { margin-top: 38px; }
+  .summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .badge { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .badge.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
   .badge.flagged { background: var(--flag-bg); color: var(--flag); }
-  .badge.error { background: color-mix(in srgb, #d13438 15%, transparent); color: #d13438; }
+  .badge.error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
   .meta { color: var(--muted); font-size: 13px; font-family: var(--mono); }
 
   .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
   table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-  th, td {
-    padding: 8px 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--line);
-    white-space: nowrap;
-  }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th {
-    background: var(--panel);
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--muted);
-    letter-spacing: .03em;
-    text-transform: uppercase;
+    background: var(--panel); font-size: 11.5px; font-weight: 600; color: var(--muted);
+    letter-spacing: .03em; text-transform: uppercase;
   }
   tbody tr:last-child td { border-bottom: 0; }
   td { font-family: var(--mono); }
@@ -157,36 +97,17 @@
 
   .failures { margin-top: 18px; display: grid; gap: 8px; }
   .failure {
-    border-left: 2.5px solid var(--flag);
-    background: var(--panel);
-    border-radius: 0 7px 7px 0;
-    padding: 9px 13px;
-    font-size: 13.5px;
+    border-left: 2.5px solid var(--flag); background: var(--panel);
+    border-radius: 0 7px 7px 0; padding: 9px 13px; font-size: 13.5px;
   }
-  .failure .where {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 2px;
-  }
+  .failure .where { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 
   details { margin-top: 22px; }
-  summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 13px;
-    user-select: none;
-  }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
   pre {
-    margin: 10px 0 0;
-    padding: 14px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    overflow-x: auto;
-    font-family: var(--mono);
-    font-size: 12.5px;
-    line-height: 1.5;
+    margin: 10px 0 0; padding: 14px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
   }
   .note { margin-top: 12px; color: var(--muted); font-size: 13px; }
 </style>
@@ -198,20 +119,51 @@
     <p>Extract a document into rows that match a Postgres table.</p>
   </header>
 
-  <div class="fields">
-    <label>
-      <span class="name">CONNECTION</span>
-      <input type="text" id="connection" value="primary" spellcheck="false">
-    </label>
-    <label>
-      <span class="name">SCHEMA</span>
-      <input type="text" id="schema" value="public" spellcheck="false">
-    </label>
-    <label>
-      <span class="name">TABLE</span>
-      <input type="text" id="table" placeholder="invoices" spellcheck="false">
-    </label>
-  </div>
+  <fieldset>
+    <legend>Destination</legend>
+    <div class="grid">
+      <label>
+        <span class="name">CONNECTION</span>
+        <select id="connection"></select>
+      </label>
+      <label>
+        <span class="name">TABLE</span>
+        <select id="table"></select>
+      </label>
+    </div>
+    <p class="aside" id="destination-note"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Model</legend>
+    <div class="grid">
+      <label>
+        <span class="name">PROVIDER</span>
+        <select id="provider">
+          <option value="">Use the server's setting</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="openai_compatible">OpenAI-compatible</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+      </label>
+      <label id="model-field" hidden>
+        <span class="name">MODEL</span>
+        <input type="text" id="model" spellcheck="false" autocomplete="off">
+      </label>
+      <label id="key-field" hidden>
+        <span class="name">API KEY</span>
+        <input type="password" id="api-key" spellcheck="false" autocomplete="off">
+      </label>
+      <label id="url-field" hidden>
+        <span class="name">BASE URL</span>
+        <input type="text" id="base-url" spellcheck="false" autocomplete="off">
+      </label>
+    </div>
+    <p class="aside" id="model-note">
+      Spreadsheets and CSV files never reach a model. Only PDFs do.
+    </p>
+  </fieldset>
 
   <div id="drop" tabindex="0" role="button" aria-label="Choose a file">
     <p id="prompt"><strong>Drop a file</strong> or click to choose</p>
@@ -233,10 +185,7 @@
     <div class="scroll"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
     <div class="failures" id="failures"></div>
     <p class="note" id="note" hidden></p>
-    <details>
-      <summary>Response</summary>
-      <pre id="raw"></pre>
-    </details>
+    <details><summary>Response</summary><pre id="raw"></pre></details>
   </section>
 
   <section id="failed" hidden>
@@ -250,56 +199,158 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const drop = $("drop");
-  const picker = $("file");
+  const show = (element, visible) => { element.hidden = !visible; };
   let file = null;
+
+  // What each provider needs, and a placeholder that is a real model name
+  // rather than a shape to decipher.
+  const PROVIDERS = {
+    anthropic: { key: true, url: false, model: "claude-opus-5" },
+    openai: { key: true, url: false, model: "gpt-5" },
+    openai_compatible: { key: true, url: true, model: "llama-3.3-70b", urlHint: "https://api.groq.com/openai/v1" },
+    ollama: { key: false, url: true, model: "qwen3", urlHint: "http://localhost:11434" },
+  };
+
+  // The key is kept here and sent with the request. It is never written to the
+  // server, and clearing site data removes it.
+  const remember = (name, value) => { try { localStorage.setItem("sg." + name, value); } catch {} };
+  const recall = (name) => { try { return localStorage.getItem("sg." + name) || ""; } catch { return ""; } };
+
+  const escape = (text) => {
+    const node = document.createElement("span");
+    node.textContent = text;
+    return node.innerHTML;
+  };
+
+  // --- destination ---------------------------------------------------------
+
+  const loadConnections = async () => {
+    try {
+      const { connections } = await (await fetch("/v1/connections")).json();
+      $("connection").innerHTML = connections
+        .map((name) => `<option value="${escape(name)}">${escape(name)}</option>`).join("");
+      const saved = recall("connection");
+      if (connections.includes(saved)) $("connection").value = saved;
+      await loadTables();
+    } catch (error) {
+      $("destination-note").textContent = "Could not read the configured connections.";
+    }
+  };
+
+  const loadTables = async () => {
+    const connection = $("connection").value;
+    const select = $("table");
+    if (!connection) return;
+    select.innerHTML = `<option value="">loading…</option>`;
+    try {
+      const response = await fetch("/v1/tables?connection=" + encodeURIComponent(connection));
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail ?? "could not list tables");
+
+      if (!body.tables.length) {
+        select.innerHTML = `<option value="">no readable tables</option>`;
+        $("destination-note").textContent = "This connection has no tables the role can read.";
+        return refresh();
+      }
+      select.innerHTML = body.tables.map((t) => {
+        const value = `${t.schema}.${t.name}`;
+        const label = t.kind === "table" ? value : `${value} · ${t.kind}`;
+        return `<option value="${escape(value)}">${escape(label)}</option>`;
+      }).join("");
+      const saved = recall("table");
+      if ([...select.options].some((o) => o.value === saved)) select.value = saved;
+      $("destination-note").textContent = `${body.tables.length} readable relations.`;
+    } catch (error) {
+      select.innerHTML = `<option value="">unavailable</option>`;
+      $("destination-note").textContent = String(error.message ?? error);
+    }
+    refresh();
+  };
+
+  // --- model ---------------------------------------------------------------
+
+  const applyProvider = () => {
+    const name = $("provider").value;
+    const spec = PROVIDERS[name];
+
+    show($("model-field"), Boolean(spec));
+    show($("key-field"), Boolean(spec && spec.key));
+    show($("url-field"), Boolean(spec && spec.url));
+
+    if (!spec) {
+      $("model-note").textContent =
+        "Spreadsheets and CSV files never reach a model. Only PDFs do.";
+      return refresh();
+    }
+    $("model").placeholder = spec.model;
+    $("base-url").placeholder = spec.urlHint ?? "";
+    $("model").value = recall("model." + name);
+    $("api-key").value = recall("key." + name);
+    $("base-url").value = recall("url." + name) || (spec.urlHint ?? "");
+    $("model-note").textContent = spec.key
+      ? "The key stays in this browser and is sent with each request. It is never stored on the server."
+      : "Runs on this machine. Nothing leaves your network.";
+    refresh();
+  };
+
+  // --- running -------------------------------------------------------------
+
+  const refresh = () => {
+    const ready = Boolean(file && $("table").value);
+    $("run").disabled = !ready;
+    $("hint").textContent = file ? (ready ? "" : "Choose a table.") : "Choose a file to begin.";
+  };
 
   const choose = (chosen) => {
     file = chosen;
-    $("prompt").hidden = true;
+    show($("prompt"), false);
     const label = $("chosen");
-    label.hidden = false;
+    show(label, true);
     label.textContent = `${chosen.name} · ${(chosen.size / 1024).toFixed(1)} kB`;
     refresh();
   };
 
-  const refresh = () => {
-    const ready = Boolean(file && $("table").value.trim());
-    $("run").disabled = !ready;
-    $("hint").textContent = file
-      ? (ready ? "" : "Name the target table.")
-      : "Choose a file to begin.";
-  };
-
-  drop.addEventListener("click", () => picker.click());
-  drop.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); }
+  $("drop").addEventListener("click", () => $("file").click());
+  $("drop").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("file").click(); }
   });
-  picker.addEventListener("change", () => picker.files[0] && choose(picker.files[0]));
+  $("file").addEventListener("change", () => $("file").files[0] && choose($("file").files[0]));
   ["dragenter", "dragover"].forEach((name) =>
-    drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.add("over"); }));
+    $("drop").addEventListener(name, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
   ["dragleave", "drop"].forEach((name) =>
-    drop.addEventListener(name, () => drop.classList.remove("over")));
-  drop.addEventListener("drop", (event) => {
+    $("drop").addEventListener(name, () => $("drop").classList.remove("over")));
+  $("drop").addEventListener("drop", (event) => {
     event.preventDefault();
     if (event.dataTransfer.files[0]) choose(event.dataTransfer.files[0]);
   });
-  $("table").addEventListener("input", refresh);
 
-  const show = (element, visible) => { element.hidden = !visible; };
+  $("connection").addEventListener("change", () => { remember("connection", $("connection").value); loadTables(); });
+  $("table").addEventListener("change", () => remember("table", $("table").value));
+  $("provider").addEventListener("change", () => { remember("provider", $("provider").value); applyProvider(); });
+  $("model").addEventListener("input", () => remember("model." + $("provider").value, $("model").value));
+  $("api-key").addEventListener("input", () => remember("key." + $("provider").value, $("api-key").value));
+  $("base-url").addEventListener("input", () => remember("url." + $("provider").value, $("base-url").value));
 
   $("run").addEventListener("click", async () => {
-    const button = $("run");
-    button.disabled = true;
+    $("run").disabled = true;
     $("hint").textContent = "Extracting…";
     show($("result"), false);
     show($("failed"), false);
 
+    const [schema, ...rest] = $("table").value.split(".");
     const form = new FormData();
     form.append("file", file);
-    form.append("connection", $("connection").value.trim());
-    form.append("schema", $("schema").value.trim() || "public");
-    form.append("table", $("table").value.trim());
+    form.append("connection", $("connection").value);
+    form.append("schema", schema);
+    form.append("table", rest.join("."));
+
+    const provider = $("provider").value;
+    if (provider) {
+      form.append("provider", provider);
+      if ($("model").value.trim()) form.append("model", $("model").value.trim());
+      if ($("api-key").value) form.append("api_key", $("api-key").value);
+      if ($("base-url").value.trim()) form.append("base_url", $("base-url").value.trim());
+    }
 
     try {
       const response = await fetch("/v1/extract", { method: "POST", body: form });
@@ -326,57 +377,47 @@
     badge.textContent = body.status;
     badge.className = `badge ${body.status}`;
 
-    const timings = Object.entries(body.timings_ms)
-      .map(([stage, ms]) => `${stage} ${ms}ms`).join("  ");
+    const timings = Object.entries(body.timings_ms).map(([s, ms]) => `${s} ${ms}ms`).join("  ");
     $("meta").textContent = `${body.table} · ${body.route} · ${body.rows.length} rows · ${timings}`;
 
-    // A cell is marked when the gate reported a failure against it, so the
-    // problem is visible where the value is rather than only in a list below.
+    // Mark the cell the gate complained about, so the problem is visible where
+    // the value is rather than only in a list underneath.
     const bad = new Set(
-      body.validation.failures
-        .filter((failure) => failure.column !== null)
-        .map((failure) => `${failure.row}:${failure.column}`)
+      body.validation.failures.filter((f) => f.column !== null).map((f) => `${f.row}:${f.column}`)
     );
 
     const columns = body.rows.length ? Object.keys(body.rows[0]) : [];
     $("head").innerHTML = columns.length
-      ? `<tr>${columns.map((name) => `<th>${escape(name)}</th>`).join("")}</tr>`
-      : "";
+      ? `<tr>${columns.map((n) => `<th>${escape(n)}</th>`).join("")}</tr>` : "";
     $("body").innerHTML = body.rows.map((row, index) =>
-      `<tr>${columns.map((name) => cell(row[name], bad.has(`${index}:${name}`))).join("")}</tr>`
+      `<tr>${columns.map((n) => cell(row[n], bad.has(`${index}:${n}`))).join("")}</tr>`
     ).join("");
 
-    $("failures").innerHTML = body.validation.failures.map((failure) => `
+    $("failures").innerHTML = body.validation.failures.map((f) => `
       <div class="failure">
-        <div class="where">row ${failure.row}${failure.column ? ` · ${escape(failure.column)}` : ""} · ${escape(failure.rule)}</div>
-        ${escape(failure.detail)}
+        <div class="where">row ${f.row}${f.column ? ` · ${escape(f.column)}` : ""} · ${escape(f.rule)}</div>
+        ${escape(f.detail)}
       </div>`).join("");
 
     const notes = [];
-    if (body.unmatched_headers.length) {
+    if (body.unmatched_headers.length)
       notes.push(`Ignored columns not in the table: ${body.unmatched_headers.join(", ")}.`);
-    }
-    if (body.missing_columns.length) {
+    if (body.missing_columns.length)
       notes.push(`The file had no column for: ${body.missing_columns.join(", ")}.`);
-    }
-    const note = $("note");
-    note.textContent = notes.join(" ");
-    show(note, notes.length > 0);
+    $("note").textContent = notes.join(" ");
+    show($("note"), notes.length > 0);
 
     show($("result"), true);
   };
 
   const cell = (value, flagged) => {
     const classes = [flagged ? "bad" : "", value === null ? "null" : ""].filter(Boolean).join(" ");
-    const text = value === null ? "null" : String(value);
-    return `<td class="${classes}">${escape(text)}</td>`;
+    return `<td class="${classes}">${escape(value === null ? "null" : String(value))}</td>`;
   };
 
-  const escape = (text) => {
-    const node = document.createElement("span");
-    node.textContent = text;
-    return node.innerHTML;
-  };
+  $("provider").value = recall("provider");
+  applyProvider();
+  loadConnections();
 </script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 import pytest
@@ -186,12 +187,24 @@ def test_the_playground_is_served_at_the_root() -> None:
     assert "SchemaGate" in response.text
 
 
-def test_the_playground_needs_no_external_resources() -> None:
+def test_the_playground_loads_nothing_from_the_internet() -> None:
     page = client().get("/").text
 
-    assert "https://" not in page, (
-        "the service is meant to run inside a private network, so a page that "
-        "fetches a font or a script from the internet would not load there"
+    for attribute in ('src="http', "src='http", 'href="http', "href='http", "@import"):
+        assert attribute not in page, (
+            "the service is meant to run inside a private network, so a page that "
+            "fetched a font or a script from the internet would not load there"
+        )
+
+
+def test_the_playground_only_calls_its_own_endpoints() -> None:
+    page = client().get("/").text
+
+    calls = re.findall(r'fetch\(\s*["\'`]([^"\'`]+)', page)
+
+    assert calls, "the page does call the API"
+    assert all(target.startswith("/") for target in calls), (
+        f"every request must be relative to this service, got {calls}"
     )
 
 
@@ -262,3 +275,16 @@ def test_openai_needs_a_model_named(monkeypatch: pytest.MonkeyPatch) -> None:
         TestClient(create_app(settings=settings, schemas=FakeSchemas())),
     ):
         pass
+
+
+def test_the_playground_offers_every_provider() -> None:
+    page = client().get("/").text
+
+    for provider in ("anthropic", "openai", "openai_compatible", "ollama"):
+        assert f'value="{provider}"' in page
+
+
+def test_the_playground_hides_the_key_field_contents() -> None:
+    page = client().get("/").text
+
+    assert 'type="password"' in page, "an API key should not be readable over a shoulder"

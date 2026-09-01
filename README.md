@@ -95,9 +95,17 @@ Environment variables only. No config file.
 | --- | --- | --- |
 | `SCHEMAGATE_CONNECTIONS__<name>` | at least one | One variable per connection, for example `SCHEMAGATE_CONNECTIONS__primary=postgresql://...`. Callers reference the name; a connection string is never accepted over HTTP. |
 | `SCHEMAGATE_MAX_UPLOAD_BYTES` | `10485760` | Largest accepted upload. Enforced before the body is read. |
-| `SCHEMAGATE_OLLAMA_HOST` | unset | Where a model server is listening, for example `http://localhost:11434`. Unset, documents needing a model are refused rather than sent anywhere. |
+| `SCHEMAGATE_PROVIDER` | unset | `anthropic`, `openai`, `openai_compatible` or `ollama`. Unset, documents needing a model are refused rather than sent anywhere. |
+| `SCHEMAGATE_ANTHROPIC_MODEL` | `claude-opus-5` | Model to extract with. |
+| `SCHEMAGATE_OPENAI_MODEL` | unset | Required for `openai` and `openai_compatible`. Never defaulted, since OpenAI names change often. |
+| `SCHEMAGATE_OPENAI_BASE_URL` | unset | For `openai_compatible`: Groq, OpenRouter, Together, DeepSeek, vLLM, LM Studio. |
+| `SCHEMAGATE_OLLAMA_HOST` | `http://localhost:11434` | Where a local Ollama server is listening. |
 | `SCHEMAGATE_OLLAMA_MODEL` | `qwen3` | Model to extract with. |
+| `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
 | `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
+
+API keys are never read by this project. Each SDK picks up its own standard variable
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), so the credential stays out of the codebase.
 
 Connection strings are held as secrets and never appear in a log line or an error body.
 
@@ -134,6 +142,16 @@ so a column you alter takes effect on the next upload.
 
 ## API
 
+### `GET /v1/connections`
+
+The configured connection names, and only the names. What each points at stays on the server.
+
+### `GET /v1/tables?connection=<name>`
+
+Every relation the connected role can `SELECT` from, so a caller can choose rather than type a
+name and find out later whether it exists. Views and materialised views are included, labelled
+with what they are.
+
 ### `POST /v1/extract`
 
 Multipart form.
@@ -144,10 +162,13 @@ Multipart form.
 | `connection` | yes | A name from `SCHEMAGATE_CONNECTIONS`. |
 | `table` | yes | Target table. |
 | `schema` | no | Postgres schema, default `public`. |
+| `provider` | no | Overrides the configured provider. Requires `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS`. |
+| `model`, `api_key`, `base_url` | no | Used with `provider`. The key is passed to the SDK and dropped: never stored, logged or returned. |
 
 `200` with `status` of `ok` or `flagged`. `400` unknown connection, `404` unknown table,
-`413` upload too large, `415` unsupported file type, `422` unreadable document, `502` the model
-server failed, `503` the database is unreachable.
+`403` per-request credentials are off, `413` upload too large, `415` unsupported file type,
+`422` unreadable document or an incomplete provider choice, `502` the model server failed,
+`503` the database is unreachable or no model is configured.
 
 Interactive docs at `/docs`. Liveness at `/health`.
 
