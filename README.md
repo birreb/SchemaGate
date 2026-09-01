@@ -1,5 +1,9 @@
 # SchemaGate
 
+[![CI](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml/badge.svg)](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.14-blue)](https://www.python.org/downloads/)
+[![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
+
 Turn a document into rows that fit a PostgreSQL table you already own.
 
 SchemaGate reads your table definition from the live database, compiles it into a validation

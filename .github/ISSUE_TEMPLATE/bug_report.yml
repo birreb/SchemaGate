@@ -1,0 +1,49 @@
+name: Bug report
+description: Something behaved differently from what it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not attach a real document. Its contents are yours, and a
+        cut-down file that still shows the problem is more useful anyway.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what came back, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: response
+    attributes:
+      label: The response
+      description: >
+        The JSON SchemaGate returned, or the error. Remove anything you would
+        rather not publish.
+      render: json
+
+  - type: textarea
+    id: table
+    attributes:
+      label: The table definition
+      description: >
+        `\d+ your_table` in psql, or the CREATE TABLE. Column types and
+        constraints are usually where the answer is.
+      render: sql
+
+  - type: input
+    id: file
+    attributes:
+      label: File type
+      description: CSV, XLSX, PDF, and anything unusual about it (encoding, delimiter, locale).
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: SchemaGate version, PostgreSQL version, and Docker or Python.
+    validations:
+      required: true
