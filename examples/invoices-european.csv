@@ -1,0 +1,4 @@
+invoice_number;supplier;vat_id;status;subtotal;tax;total;issued_on
+INV-2001;Bauer Werkzeuge GmbH;DE811234567;sent;1.240,00;310,00;1.550,00;2026-02-03
+INV-2002;Nordvik Metall AB;SE556677889901;paid;890,00;222,50;1.112,50;2026-02-05
+INV-2003;Acme Components Ltd;GB123456789;draft;410,00;102,50;900,00;2026-02-09

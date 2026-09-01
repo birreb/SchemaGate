@@ -49,14 +49,29 @@ back, nothing is silently repaired, and you decide what to do.
 - Docker, or Python 3.11 or newer.
 - For PDFs, a running [Ollama](https://ollama.com) server. Spreadsheets and CSVs need no model.
 
-## Quickstart
+## Try it in one command
+
+Starts a throwaway Postgres with an example `invoices` table and runs SchemaGate against it:
+
+```console
+$ docker compose -f examples/compose.demo.yaml up
+```
+
+Open <http://localhost:8000>, set the connection to `demo` and the table to `invoices`, and
+drop in `examples/invoices-european.csv`. It is semicolon delimited with comma decimals, and
+its last row does not add up, so you see the separator handling and the arithmetic check at
+once.
+
+## Quickstart against your own database
 
 ```console
 $ cp .env.example .env      # then set SCHEMAGATE_CONNECTIONS
 $ docker compose up
 ```
 
-Open <http://localhost:8000> for a page to try it by hand, or post to `/v1/extract`.
+Open <http://localhost:8000> for a page to try it by hand, or post to `/v1/extract`. The main
+compose file starts SchemaGate and nothing else, so it can never point you at a database other
+than the one you configured.
 
 Without Docker:
 

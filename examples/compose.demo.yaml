@@ -1,0 +1,39 @@
+# A self-contained demo. Starts a throwaway Postgres, loads examples/invoices.sql
+# into it, and runs SchemaGate against it.
+#
+#   docker compose -f examples/compose.demo.yaml up
+#
+# For evaluation only. The database here is disposable and its password is in
+# this file, which is why this is a separate file rather than part of the main
+# compose.yaml. That one starts SchemaGate and nothing else, so it can never
+# quietly point you at a database other than your own.
+
+name: schemagate-demo
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    # The official image runs every .sql in this directory on first start.
+    volumes:
+      - ./invoices.sql:/docker-entrypoint-initdb.d/10-invoices.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  schemagate:
+    build:
+      context: ..
+    ports:
+      - "8000:8000"
+    environment:
+      SCHEMAGATE_CONNECTIONS: '{"demo": "postgresql://demo:demo@db:5432/demo"}'
+      SCHEMAGATE_RULES: '{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}'
+    depends_on:
+      db:
+        condition: service_healthy
