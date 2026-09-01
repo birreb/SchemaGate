@@ -1,3 +1,4 @@
+import codecs
 import csv
 import datetime as dt
 import io
@@ -17,9 +18,35 @@ DELIMITERS = ",;\t|"
 
 SNIFF_BYTES = 8192
 
+# A file with no consistent delimiter has one column. Parsing it with a
+# character that cannot appear in text keeps quote handling while splitting
+# nothing at all.
+SINGLE_COLUMN = chr(0)
+
 # Above 2**53 a float can no longer represent every integer, so expanding one
 # to integer notation appends digits that were never in the file.
 EXACT_INTEGER_LIMIT = 2**53
+
+# Byte order marks are the only deterministic evidence of an encoding. UTF-32
+# is checked first because its mark begins with the UTF-16 one.
+BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+
+# Measured rather than guessed: a real detection scores coherence around 0.2 to
+# 0.35, while a guess on a two-line file scores 0.00 and still returns an
+# answer. Multi-byte encodings are self-validating like UTF-8, so heavy
+# multi-byte use is evidence in its own right.
+MIN_COHERENCE = 0.15
+MIN_MULTI_BYTE_USAGE = 0.3
+
+# Below this there are too few non-ASCII bytes for any statistical method to
+# say anything, whatever score it reports.
+MIN_DETECTION_BYTES = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,23 +199,57 @@ def _render(value: Any) -> str:
 
 
 def _decode(data: bytes) -> str:
+    """Decode by evidence, and fall back rather than guess.
+
+    Statistical detection needs enough text to work with. On a two-line file it
+    reports no coherence at all and still returns an answer, which is how a
+    German supplier name comes back in Arabic presentation forms.
+    """
+    for bom, encoding in BOMS:
+        if data.startswith(bom):
+            return data.decode(encoding)
+
     try:
-        return data.decode("utf-8-sig")
+        return data.decode("utf-8")
     except UnicodeDecodeError:
         pass
 
-    detected = from_bytes(data).best()
-    if detected is None:
-        raise MalformedDocumentError("The file is not text in any encoding we could identify.")
-    return str(detected)
+    if len(data) >= MIN_DETECTION_BYTES:
+        detected = from_bytes(data).best()
+        if detected is not None and (
+            detected.coherence >= MIN_COHERENCE or detected.multi_byte_usage >= MIN_MULTI_BYTE_USAGE
+        ):
+            return str(detected)
+
+    # cp1252, not latin-1. Byte 0x80 is the euro sign in cp1252 and a control
+    # character in latin-1, which matters for every invoice priced in euros.
+    # latin-1 is the last resort only because it decodes any byte at all.
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
 
 
 def _sniff(text: str) -> str:
     try:
         return csv.Sniffer().sniff(text[:SNIFF_BYTES], delimiters=DELIMITERS).delimiter
     except csv.Error:
-        # A single-column file has no delimiter to find, which is not an error.
-        return ","
+        return _from_header(text)
+
+
+def _from_header(text: str) -> str:
+    """Choose a delimiter from the header row when the sniffer gives up.
+
+    The sniffer abandons two different files: one genuine column whose values
+    contain punctuation, and several columns whose rows are ragged. The header
+    row tells them apart, because it is the one line that names columns rather
+    than carrying data. No delimiter there means one column.
+    """
+    lines = text.splitlines()
+    header = lines[0] if lines else ""
+    counts = {delimiter: header.count(delimiter) for delimiter in DELIMITERS}
+    best = max(counts, key=lambda delimiter: counts[delimiter])
+    return best if counts[best] else SINGLE_COLUMN
 
 
 def _reject_duplicates(headers: tuple[str, ...]) -> None:

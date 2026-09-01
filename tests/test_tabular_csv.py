@@ -102,3 +102,64 @@ def test_rejects_a_duplicate_header() -> None:
         read_csv(b"total,total\n1,2\n")
 
     assert "total" in str(caught.value)
+
+
+def test_a_single_column_file_may_contain_commas() -> None:
+    table = read_csv(b"description\nWidget, large\nBolt, small\n")
+
+    assert table.headers == ("description",)
+    assert table.rows == (("Widget, large",), ("Bolt, small",))
+
+
+def test_a_single_column_file_may_contain_semicolons() -> None:
+    table = read_csv(b"note\na;b\nc;d\n")
+
+    assert table.rows == (("a;b",), ("c;d",))
+
+
+def test_short_western_files_are_not_guessed_into_another_script() -> None:
+    table = read_csv("a\nRüsselsheim\n".encode("cp1252"))
+
+    assert table.rows == (("Rüsselsheim",),), (
+        "statistical detection has no evidence to work with this short, "
+        "so it must fall back rather than guess"
+    )
+
+
+def test_a_single_accented_character_survives() -> None:
+    assert read_csv("n\nCafé\n".encode("cp1252")).rows == (("Café",),)
+
+
+def test_the_euro_sign_survives() -> None:
+    table = read_csv("total\n€10,00\n".encode("cp1252"))
+
+    assert table.rows == (("€10,00",),), (
+        "the euro sign is byte 0x80, which latin-1 decodes as a control character; "
+        "cp1252 is the correct fallback for invoice data"
+    )
+
+
+def test_utf16_is_read_through_its_byte_order_mark() -> None:
+    table = read_csv("supplier\nBjörn AB\n".encode("utf-16"))
+
+    assert table.rows == (("Björn AB",),)
+
+
+def test_cyrillic_is_still_detected() -> None:
+    text = "supplier\n" + "ООО Ромашка Компания\n" * 4  # noqa: RUF001
+    table = read_csv(text.encode("cp1251"))
+
+    assert table.rows[0] == ("ООО Ромашка Компания",)  # noqa: RUF001
+
+
+def test_japanese_is_still_detected() -> None:
+    text = "supplier\n" + "株式会社テスト商事\n" * 4
+    table = read_csv(text.encode("shift-jis"))
+
+    assert table.rows[0] == ("株式会社テスト商事",)
+
+
+def test_bytes_no_encoding_defines_do_not_crash() -> None:
+    table = read_csv(b"a\n\x81\x8d\x90\n")
+
+    assert len(table.rows) == 1
