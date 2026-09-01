@@ -1,8 +1,8 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 3 built. Discovery, model compilation, the tabular fast path, the
-native PDF path and upload routing all work and are under test. Extraction and the validation
-gate are next, so nothing calls a model yet. See [Milestones](#milestones) for detail.
+Status: milestones 0 to 4 built. Discovery, model compilation, the tabular fast path, the
+native PDF path, upload routing and the validation gate all work and are under test. Nothing
+calls a model yet; extraction is next. See [Milestones](#milestones) for detail.
 
 Decisions in this document are recorded with the reason behind them, including the ones that
 were revised after measurement. Where a note says a field or library behaves in a particular
@@ -284,6 +284,33 @@ A row that fails any layer comes back flagged, with the failing checks attached 
 extracted values. It is not silently dropped and it is not silently repaired. The caller
 decides.
 
+Each layer skips cells an earlier one already rejected. One wrong cell should produce one
+finding, not the same problem restated three times in different words.
+
+**Decimal separators are the riskiest conversion in the product.** Reading a grouping
+separator as a decimal point is wrong by a factor of a thousand, on exactly the numbers people
+care about most. The rule:
+
+- Both separators present: the last one is the decimal point. This settles `1.234,56` and
+  `1,234.56` without guessing.
+- A separator that repeats can only be grouping, so `1.234.567` is unambiguous.
+- A single separator followed by exactly three digits is genuinely ambiguous. `1,234` is
+  either one thousand two hundred and thirty four or one point two three four, and nothing in
+  the string decides it. These are refused and reported rather than guessed.
+
+Integer columns take digits only. An exponent arriving at this point means the source already
+lost the exact value, which is precisely the case the spreadsheet reader leaves in float form
+so that it fails here instead of being written as fabricated digits.
+
+Real exports also carry currency symbols, no-break spaces between thousands groups (the French
+and Nordic convention) and accounting negatives in parentheses. All three are handled.
+Regional date formats are refused: `05/01/2026` is January or May depending on who wrote it.
+
+**Arithmetic rules are declared as data, never parsed from an expression.** Rules arrive from
+configuration, and an expression evaluator that takes configuration is a way to run arbitrary
+code inside the service. Comparison is on `Decimal` with an explicit tolerance; on floats the
+check would report `0.1 + 0.2` as unequal to `0.3` and flag correct invoices.
+
 ## Layout
 
 ```
@@ -432,11 +459,12 @@ the smallest implementation that passes it.
 
 0. **Done.** Repository skeleton: packaging, configuration, lint, types, CI, an app that starts
    and answers `/health`.
-1. **Done, pending CI.** Introspection and the model factory. Tested against a Postgres container with a table
-   covering every type in the mapping above, enum labels, and column comments.
+1. **Done, pending CI.** Introspection and the model factory, tested against a Postgres
+   container with a table covering every type in the mapping above, enum labels and column
+   comments. The catalog query itself has not yet run anywhere.
 2. **Done.** Tabular fast path. CSV and spreadsheets to rows keyed by column, no model call.
 3. **Done.** Native PDF path, thread-offloaded, plus content-based upload routing.
-4. Validation gate. Coercion, database constraints, configurable arithmetic rules. Pure logic,
+4. **Done.** Validation gate. Coercion, database constraints and arithmetic rules. Pure logic,
    no model, so it is fully testable on its own.
 5. First real extractor, Ollama. Container model, schema-constrained generation, and the
    validation gate already in place to catch well-formed wrong answers.
