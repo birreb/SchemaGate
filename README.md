@@ -4,18 +4,17 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.14-blue)](https://www.python.org/downloads/)
 [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
 
-**Document in, rows out, shaped by your PostgreSQL table.**
+Document in, rows out, shaped by a PostgreSQL table you already own.
 
-Point it at a table. It reads that table's definition from the live database, sends an LLM a
-schema built from it, and constrains the model so the output cannot disagree with your
-columns. Then it checks the result and hands you JSON you can insert.
+SchemaGate reads the table's definition from the live database, sends an LLM a schema built
+from it, and constrains the model so the output cannot disagree with your columns. It checks
+the result and returns JSON you can insert. It never writes to your database.
 
-The table is the specification, so there is nothing to configure and no mapping file to keep
-in step. Alter a column and the next upload follows it.
+There is no mapping file to maintain: the table is the configuration. Alter a column and the
+next upload follows it.
 
-The API is the product. There is a page at the root for trying it and for watching what the
-pipeline did, but it is a playground rather than somewhere anyone is meant to work: no
-queues, no review inboxes, no accounts. You render the result in your own application.
+The page at the root is a playground for trying the API, not a place to work. No queues, no
+review inbox, no accounts.
 
 ```console
 $ curl -s localhost:8000/v1/extract \
@@ -65,8 +64,6 @@ worth being able to see rather than being asked to believe.
 
 ## How it works
 
-Your table is the specification. Nothing else is.
-
 ```
               your PostgreSQL table
       columns, types, enums, limits, comments
@@ -79,43 +76,36 @@ Your table is the specification. Nothing else is.
                              schema     limits
 ```
 
-Five steps, and the third is the only one that involves a model.
+1. Read the table from `pg_catalog`: column names, types, enum members, length limits, decimal
+   scale, and any `COMMENT ON COLUMN` text. This runs on every request, so an altered column
+   takes effect on the next upload.
+2. Read the document. A PDF becomes text, a scan goes through OCR, a photo is normalised, a CSV
+   or spreadsheet becomes a grid.
+3. Send it to the model along with a schema built from step 1.
+4. Check what comes back: types, lengths, enum members, and any arithmetic rules you set.
+5. Return JSON shaped like the table. You run the `INSERT`; SchemaGate never writes.
 
-1. **Read your table** from `pg_catalog`. Column names, types, enum members, length
-   limits, decimal scale, and your `COMMENT ON COLUMN` text. Every request, so a column you
-   alter takes effect on the next upload.
-2. **Read the document.** A PDF becomes text, a scan goes through OCR, a photo is normalised,
-   a CSV or spreadsheet becomes a grid. No model yet.
-3. **Ask the model, constrained by your schema.** This is the step that understands things.
-4. **Check what came back.** Types, lengths, enum members, and any arithmetic you configured.
-5. **Return JSON** shaped like your table. You run the `INSERT`. SchemaGate never writes.
+### What the model does
 
-### What the model is asked, and when
+| File | Model's job |
+| --- | --- |
+| PDF, scan, photo | read the document and return the rows |
+| spreadsheet, CSV | match the headings to your columns |
 
-It is used on every path, but for different work, because the documents differ.
+A spreadsheet already holds the values in a grid, so the model only decides what each heading
+means (`Fakturanr` is `invoice_number`) and the values are copied by code. Headings that match
+by spelling skip the model entirely. Answers are cached per heading set and table.
 
-| The file is | The model is asked to | Because |
-| --- | --- | --- |
-| a PDF, scan or photo | read the document and produce the rows | there is no grid to copy; the values have to be understood |
-| a spreadsheet or CSV | match the headings to your columns | `Fakturanr` means `invoice_number` and no amount of string handling will work that out |
+Transcribing a 5,000 row export would cost about $3.60 against $0.0001 for the headings, and a
+model rewriting that many rows can drop one or change a digit.
 
-On a spreadsheet the model decides **what the columns mean**, then code copies the values
-exactly. That split is deliberate. For a five thousand row export, transcription costs around
-$3.60 against $0.0001 for the headings, but the money is not the argument: a model rewriting
-five thousand rows can drop one or change a digit, and code copying a column cannot. On numbers
-people reconcile, that is the difference between exact and nearly right.
+### Constrained output
 
-Headings that match by spelling never reach a model at all, and an answer is cached against the
-headings and your table, so the second file from that supplier is free again.
+The schema is sent with the request and the provider restricts generation to it. A column you
+do not have, a value outside your enum, and a field of the wrong type are not expressible.
 
-### What "constrained" means
-
-The schema is sent with the request, and the provider restricts generation to it while the
-tokens are being chosen. The model cannot return a column you do not have, a value outside your
-enum, or a field of the wrong type, because none of those are expressible.
-
-That guarantees the shape, not the truth. A constrained model still returns well formed wrong
-values, which is why step 4 exists and why it was built before any model was connected.
+This constrains the shape, not the content. Values can still be wrong, which is what step 4 is
+for.
 
 ## Requirements
 
@@ -125,7 +115,7 @@ values, which is why step 4 exists and why it was built before any model was con
 - For PDFs, a model: Anthropic, OpenAI, any OpenAI-compatible endpoint, or a local
   [Ollama](https://ollama.com). Spreadsheets and CSVs need no model at all.
 - For scanned PDFs, `pip install schemagate[ocr]`. OCR runs locally, so a scan never leaves
-  your network. It adds about 20 MB of shared libraries, which is why it is separate.
+  your network. Separate because it adds about 20 MB of shared libraries.
 
 ## Try it in one command
 
@@ -185,7 +175,7 @@ stored on the server or written to a log.
 | `openai_compatible` | Anything speaking the OpenAI API at another address: Groq, OpenRouter, Together, DeepSeek, vLLM, LM Studio, and Gemini's compatibility endpoint. Needs `base_url`. |
 | `ollama` | Local. No key, and the document never leaves your network. |
 
-One adapter covers the third row rather than one per vendor, which is why adding a new
+One adapter covers the third row rather than one per vendor. Adding another
 OpenAI-compatible service costs nothing but a URL.
 
 ## Configuration
@@ -256,8 +246,8 @@ could not read well enough, and separately, a page that produced almost no text 
 survive OCR whatever the parser thinks of its own work. Either one sends the page to a
 vision model instead.
 
-The second check exists because the first is not reliable: the same blurred page is flagged
-on one platform and passed silently on another, returning the same nonsense both times.
+The second check exists because the first is unreliable: the same blurred page is flagged on
+one platform and passed silently on another, returning the same nonsense both times.
 
 So a scan costs nothing when it is clean, and escalates only when it has to.
 
