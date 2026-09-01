@@ -20,3 +20,7 @@ class UnsupportedColumnTypeError(SchemaGateError):
 
 class MalformedDocumentError(SchemaGateError):
     """An uploaded file could not be parsed as the type it claims to be."""
+
+
+class UnsupportedFileTypeError(SchemaGateError):
+    """An upload is not a file type SchemaGate knows how to read."""
