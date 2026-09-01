@@ -1,0 +1,156 @@
+import json
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from schemagate.api.app import create_app
+from schemagate.config import Settings
+from schemagate.errors import TableNotFoundError
+from schemagate.extract.base import ModelT
+from schemagate.schema.spec import ColumnSpec, TableSchema
+
+DSN = "postgresql://user:password@localhost:5432/billing"
+
+INVOICES = TableSchema(
+    schema="public",
+    name="invoices",
+    columns=(
+        ColumnSpec(name="id", data_type="int8", nullable=False, ordinal=1, is_identity=True),
+        ColumnSpec(name="invoice_number", data_type="text", nullable=False, ordinal=2),
+        ColumnSpec(
+            name="subtotal", data_type="numeric", nullable=False, ordinal=3, numeric_scale=2
+        ),
+        ColumnSpec(name="issued_on", data_type="date", nullable=True, ordinal=4),
+    ),
+)
+
+CSV = b"invoice_number,subtotal,issued_on\nINV-1,1234.56,2026-01-05\n"
+
+
+class FakeSchemas:
+    async def fetch(self, connection: str, schema: str, table: str) -> TableSchema:
+        if table != "invoices":
+            raise TableNotFoundError(f"Table {schema}.{table} does not exist.")
+        return INVOICES
+
+
+class StubExtractor:
+    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+        return model.model_validate({"rows": []})
+
+
+def client(**overrides: Any) -> TestClient:
+    settings = Settings(connections={"primary": DSN}, **overrides)
+    app = create_app(settings=settings, schemas=FakeSchemas(), extractor=StubExtractor())
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def upload(data: bytes = CSV, name: str = "invoices.csv", **form: str) -> dict[str, Any]:
+    return {
+        "files": {"file": (name, data, "text/csv")},
+        "data": {"connection": "primary", "table": "invoices", **form},
+    }
+
+
+def test_a_csv_comes_back_as_rows() -> None:
+    response = client().post("/v1/extract", **upload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["table"] == "public.invoices"
+    assert body["route"] == "tabular"
+    assert body["rows"][0]["invoice_number"] == "INV-1"
+
+
+def test_money_leaves_as_a_string() -> None:
+    response = client().post("/v1/extract", **upload())
+
+    raw = json.loads(response.text)["rows"][0]["subtotal"]
+
+    assert raw == "1234.56"
+    assert isinstance(raw, str), (
+        "a JSON number becomes a float in every client parser, which throws away "
+        "the exactness the whole pipeline exists to preserve"
+    )
+
+
+def test_dates_leave_as_iso_strings() -> None:
+    body = client().post("/v1/extract", **upload()).json()
+
+    assert body["rows"][0]["issued_on"] == "2026-01-05"
+
+
+def test_columns_the_database_owns_are_absent() -> None:
+    body = client().post("/v1/extract", **upload()).json()
+
+    assert "id" not in body["rows"][0]
+
+
+def test_a_failed_check_is_reported_without_being_an_error() -> None:
+    data = b"invoice_number,subtotal,issued_on\nINV-1,not a number,2026-01-05\n"
+
+    response = client().post("/v1/extract", **upload(data))
+
+    assert response.status_code == 200, "extraction worked; a check did not hold"
+    body = response.json()
+    assert body["status"] == "flagged"
+    assert body["validation"]["failures"][0]["column"] == "subtotal"
+    assert body["validation"]["failures"][0]["row"] == 0
+
+
+def test_an_unknown_connection_is_the_callers_mistake() -> None:
+    response = client().post("/v1/extract", **upload(connection="nope"))
+
+    assert response.status_code == 400
+
+
+def test_an_unknown_table_is_not_found() -> None:
+    response = client().post("/v1/extract", **upload(table="ghosts"))
+
+    assert response.status_code == 404
+
+
+def test_an_unsupported_file_type_says_so() -> None:
+    response = client().post("/v1/extract", **upload(b"\x00\x01\x02 nonsense", "thing.bin"))
+
+    assert response.status_code == 415
+
+
+def test_an_oversized_upload_is_refused() -> None:
+    subject = client(max_upload_bytes=16)
+
+    response = subject.post("/v1/extract", **upload())
+
+    assert response.status_code == 413
+
+
+def test_a_request_without_a_file_is_rejected() -> None:
+    response = client().post("/v1/extract", data={"connection": "primary", "table": "invoices"})
+
+    assert response.status_code == 422
+
+
+def test_the_error_body_never_contains_the_connection_string() -> None:
+    response = client().post("/v1/extract", **upload(table="ghosts"))
+
+    assert "password" not in response.text
+    assert DSN not in response.text
+
+
+def test_timings_are_reported() -> None:
+    body = client().post("/v1/extract", **upload()).json()
+
+    assert "parse" in body["timings_ms"]
+
+
+def test_health_still_answers() -> None:
+    assert client().get("/health").json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize("schema_name", ["public", "billing"])
+def test_the_schema_defaults_to_public_and_can_be_given(schema_name: str) -> None:
+    response = client().post("/v1/extract", **upload(schema=schema_name))
+
+    assert response.status_code == 200

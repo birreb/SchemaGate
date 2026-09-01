@@ -1,9 +1,10 @@
 from typing import Any
 
-from pydantic import SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from schemagate.errors import ConfigurationError, UnknownConnectionError
+from schemagate.validate.rules import SumRule
 
 ENV_PREFIX = "SCHEMAGATE_"
 
@@ -21,6 +22,9 @@ class Settings(BaseSettings):
 
     connections: dict[str, SecretStr]
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    # Arithmetic checks per table, keyed by qualified name, for example
+    # {"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}
+    rules: dict[str, list[SumRule]] = Field(default_factory=dict)
 
     def __init__(self, **overrides: Any) -> None:
         try:
@@ -44,6 +48,10 @@ class Settings(BaseSettings):
                 f"Unknown connection {name!r}. Configured connections: {known}."
             )
         return secret.get_secret_value()
+
+    def rules_for(self, table: str) -> tuple[SumRule, ...]:
+        """Arithmetic checks configured for a table, by qualified name."""
+        return tuple(self.rules.get(table, ()))
 
 
 def _describe(error: ValidationError) -> str:
