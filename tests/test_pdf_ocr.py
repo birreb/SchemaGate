@@ -124,13 +124,16 @@ def test_a_readable_scan_does_not_ask_for_help() -> None:
     assert result.hosted_recommended is False
 
 
-def test_the_parser_admits_when_its_ocr_failed() -> None:
+def test_a_scan_ocr_could_not_read_is_marked_for_a_second_look() -> None:
     result = read_pdf(unreadable_scan(), allow_ocr=True)
 
     assert result.hosted_recommended is True, (
-        "without this the garbage OCR produced would be handed to the model as "
-        "the document, and the answer would look confident and be invented"
+        "without this the near-empty output would be handed to the model as the "
+        "document, and the answer would look confident and be invented. The "
+        "parser flags this on some platforms and not others, so the length of "
+        "what came back is what decides."
     )
+    assert len(result.markdown.strip()) < 40, "the premise: OCR produced almost nothing"
 
 
 def test_pages_to_escalate_are_named() -> None:

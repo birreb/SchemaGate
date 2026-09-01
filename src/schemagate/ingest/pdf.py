@@ -3,6 +3,7 @@ import io
 import os
 import pathlib
 from collections.abc import Sequence
+from typing import Any
 from dataclasses import dataclass
 from functools import cache
 
@@ -14,6 +15,13 @@ from schemagate.ingest.images import NormalisedImage, normalise
 
 # Classifications where the page carries no recoverable text layer.
 IMAGE_TYPES = frozenset({"scanned", "image_based"})
+
+# A page of a real document carries hundreds of characters. OCR returning a
+# handful means it failed, whether or not it says so, and CI proved it does
+# not always say so: the same blurred page that the parser flags on one
+# platform it passes silently on another, returning a single wrong character
+# both times. Self-assessment is a useful signal and a poor guarantee.
+MIN_OCR_CHARS_PER_PAGE = 40
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +104,8 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
     if needs_ocr and allow_ocr and ocr_available():
         recovered = _run_ocr(data)
         if recovered is not None:
-            text, escalate = recovered
+            text, flagged = recovered
+            escalate = _pages_to_reread(text, flagged, result)
             if text.strip() or escalate:
                 return PdfText(
                     markdown=text,
@@ -119,6 +128,22 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
         pages_flagged_sparse=tuple(result.pages_needing_ocr),
         route="native",
     )
+
+
+def _pages_to_reread(text: str, flagged: Sequence[int], result: Any) -> tuple[int, ...]:
+    """Which pages a vision model should look at instead.
+
+    The parser's own `pages_recommending_hosted` when it sets it, and otherwise
+    a plain length check: a page that produced almost no text did not survive
+    OCR regardless of what the parser thinks of its own work.
+    """
+    if flagged:
+        return tuple(flagged)
+
+    pages = max(1, int(getattr(result, "page_count", 1) or 1))
+    if len(text.strip()) < MIN_OCR_CHARS_PER_PAGE * pages:
+        return tuple(range(1, pages + 1))
+    return ()
 
 
 def _run_ocr(data: bytes) -> tuple[str, tuple[int, ...]] | None:

@@ -5,6 +5,7 @@ from typing import Annotated, Any, Protocol
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
+from schemagate.api.logging import note
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
 from schemagate.errors import (
@@ -197,6 +198,15 @@ async def extract(
         raise HTTPException(status_code=503, detail=str(error)) from error
     except ExtractionError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+    note(
+        request,
+        table=result.table,
+        route=result.route.value,
+        rows=len(result.rows),
+        failures=len(result.failures),
+        outcome=result.status,
+    )
 
     return {
         "status": result.status,

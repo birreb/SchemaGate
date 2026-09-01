@@ -141,6 +141,8 @@ Environment variables only. No config file.
 | `SCHEMAGATE_OPENAI_BASE_URL` | unset | For `openai_compatible`: Groq, OpenRouter, Together, DeepSeek, vLLM, LM Studio. |
 | `SCHEMAGATE_OLLAMA_HOST` | `http://localhost:11434` | Where a local Ollama server is listening. |
 | `SCHEMAGATE_OLLAMA_MODEL` | `qwen3` | Model to extract with. |
+| `SCHEMAGATE_MODEL_TIMEOUT_SECONDS` | `120` | How long to wait on a model. The SDKs default to ten minutes, which holds a worker on a provider that has stopped answering. |
+| `SCHEMAGATE_DATABASE_TIMEOUT_SECONDS` | `10` | How long to wait on the database. |
 | `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
 | `SCHEMAGATE_INSTRUCTIONS` | `{}` | Free text passed to the model per table, for what a schema cannot say. A request may override it. |
 | `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
@@ -177,10 +179,15 @@ independent 2026 comparisons name as the best default for printed text and the m
 skew, warping and uneven lighting. It takes under a second, and the page never leaves your
 network.
 
-What matters more is what happens when it fails. The parser reports which pages its own OCR
-could not read well enough, and those pages are rendered and sent to a vision model instead of
-being passed on. On a small blurred scan, PP-OCR returns a single wrong character; handing that
-to a model as the document would produce an answer that looked confident and was invented.
+What matters more is what happens when it fails. On a small blurred scan, PP-OCR returns a
+single wrong character; handing that to a model as the document would produce an answer that
+looked confident and was invented. Two things catch it. The parser reports which pages it
+could not read well enough, and separately, a page that produced almost no text did not
+survive OCR whatever the parser thinks of its own work. Either one sends the page to a
+vision model instead.
+
+The second check exists because the first is not reliable: the same blurred page is flagged
+on one platform and passed silently on another, returning the same nonsense both times.
 
 So a scan costs nothing when it is clean, and escalates only when it has to.
 
@@ -249,7 +256,13 @@ Multipart form.
 `422` unreadable document or an incomplete provider choice, `502` the model server failed,
 `503` the database is unreachable or no model is configured.
 
-Interactive docs at `/docs`. Liveness at `/health`.
+Interactive docs at `/docs`, and the OpenAPI document at `/openapi.json`, which generates a
+client in any language. Liveness at `/health`.
+
+Every response carries an `X-Request-Id`, echoing one you send or assigning one otherwise.
+It appears on the log line for that request, so a report of something going wrong can be
+traced to what the service actually did. Logs record the table, route, row and failure
+counts and timings, and never a credential or any part of a document.
 
 ### Numbers are strings
 

@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from schemagate import __version__
+from schemagate.api.logging import record_requests
 from schemagate.api.routes import SchemaSource, router
 from schemagate.config import Settings
 from schemagate.errors import ConfigurationError
@@ -43,6 +44,7 @@ def create_app(
                 await owned.close()
 
     app = FastAPI(title="SchemaGate", version=__version__, lifespan=lifespan)
+    app.middleware("http")(record_requests)
     app.state.settings = resolved
     app.state.schemas = schemas
     app.state.extractor = extractor
@@ -62,6 +64,7 @@ def build_extractor(settings: Settings) -> Extractor:
         model=_configured_model(settings),
         base_url=settings.openai_base_url,
         ollama_host=settings.ollama_host,
+        timeout=settings.model_timeout_seconds,
     )
 
 
@@ -79,6 +82,7 @@ def make_extractor(
     api_key: str | None = None,
     base_url: str | None = None,
     ollama_host: str = "http://localhost:11434",
+    timeout: float = 120.0,
 ) -> Extractor:
     """Build one extractor from plain values.
 
@@ -93,7 +97,11 @@ def make_extractor(
         from schemagate.extract.anthropic import AnthropicExtractor
 
         return AnthropicExtractor(
-            client=AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic(),
+            client=(
+                AsyncAnthropic(api_key=api_key, timeout=timeout)
+                if api_key
+                else AsyncAnthropic(timeout=timeout)
+            ),
             model=model or DEFAULT_ANTHROPIC_MODEL,
         )
 
@@ -113,7 +121,7 @@ def make_extractor(
                 "the only thing distinguishing it from OpenAI itself."
             )
         return OpenAIExtractor(
-            client=AsyncOpenAI(api_key=api_key or "unused", base_url=base_url),
+            client=AsyncOpenAI(api_key=api_key or "unused", base_url=base_url, timeout=timeout),
             model=model,
         )
 
@@ -128,7 +136,7 @@ def make_extractor(
     from schemagate.extract.ollama import OllamaExtractor
 
     return OllamaExtractor(
-        client=AsyncClient(host=base_url or ollama_host),
+        client=AsyncClient(host=base_url or ollama_host, timeout=timeout),
         model=model or DEFAULT_OLLAMA_MODEL,
     )
 

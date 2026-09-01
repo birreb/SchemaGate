@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # crosses HTTP, which is not something a caller gets to decide.
     allow_request_credentials: bool = False
 
+    # Both SDKs default to ten minutes, which holds a worker and a connection
+    # on a provider that has stopped answering. A document that has not been
+    # read in two minutes is not going to be.
+    model_timeout_seconds: float = 120.0
+    database_timeout_seconds: float = 10.0
+
     def __init__(self, **overrides: Any) -> None:
         try:
             super().__init__(**overrides)
