@@ -90,6 +90,33 @@ $ uv run --env-file .env uvicorn schemagate.api.app:create_app --factory
 The service validates its configuration at startup and refuses to run without it, naming the
 variable it needs. A misconfigured deployment fails immediately rather than an hour later.
 
+## The playground
+
+`http://localhost:8000` serves a single page for trying the API by hand: pick a connection and
+a table from what the database actually has, choose a provider and model, drop a file, and see
+the rows come back with any failed check marked on the cell it belongs to.
+
+It is not a dashboard and not the product. It exists so the API can be judged in the first
+minute, and it calls the same public endpoints anything else would. Everything on the page is
+inline, with a test enforcing it, because the service is meant to run inside a private network
+where a request to a font host would simply fail.
+
+Setting a provider and key in the page requires `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS`, since
+that sends a credential over HTTP. The key stays in the browser, is used once, and is never
+stored on the server or written to a log.
+
+## Providers
+
+| Provider | Notes |
+| --- | --- |
+| `anthropic` | Claude. Defaults to `claude-opus-5`. |
+| `openai` | GPT. The model must be named, since OpenAI's names change often. |
+| `openai_compatible` | Anything speaking the OpenAI API at another address: Groq, OpenRouter, Together, DeepSeek, vLLM, LM Studio, and Gemini's compatibility endpoint. Needs `base_url`. |
+| `ollama` | Local. No key, and the document never leaves your network. |
+
+One adapter covers the third row rather than one per vendor, which is why adding a new
+OpenAI-compatible service costs nothing but a URL.
+
 ## Configuration
 
 Environment variables only. No config file.
@@ -157,6 +184,13 @@ Every relation the connected role can `SELECT` from, so a caller can choose rath
 name and find out later whether it exists. Views and materialised views are included, labelled
 with what they are.
 
+### `POST /v1/models`
+
+Which models a provider will accept, asked of the provider rather than kept as a list here.
+Takes `provider`, and optionally `api_key` and `base_url`. A list in this repository would go
+stale, would not reflect what a given key is entitled to, and for a local runtime would name
+models that were never pulled.
+
 ### `POST /v1/extract`
 
 Multipart form.
@@ -206,8 +240,13 @@ Worth knowing before you evaluate it.
   thirty four or one point two three four. The column's declared scale settles it, and so does
   any unambiguous value elsewhere in the same column. With neither, guessing would be wrong by
   a factor of a thousand, so it is reported instead.
-- **A local model constrained to your schema still returns wrong values sometimes.** The shape
-  is guaranteed; the content is not. That is what the checks are for.
+- **Any model, constrained to your schema, still returns wrong values sometimes.** The shape is
+  guaranteed; the content is not. A smaller model is wrong more often, but none of them are
+  never wrong. That is what the checks are for, and why they were built before any model was
+  connected.
+- **Scanned pages are read by OCR, which misreads things too.** It is a second place a value
+  can go wrong, on documents that were already the hardest to read. The checks apply equally,
+  but a scan deserves more suspicion than a digital PDF.
 
 ## Development
 

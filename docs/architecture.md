@@ -1,8 +1,9 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 6 built. It runs. Discovery, model compilation, the tabular fast path, the
-native PDF path, upload routing, the validation gate and the Ollama extractor all work and are
-under test. Nothing is wired into an HTTP endpoint yet. See [Milestones](#milestones) for detail.
+Status: milestones 0 to 8 built, and it runs. A document can be posted to the endpoint and
+come back as validated rows: CSV, spreadsheets, digital PDFs, and scanned PDFs through local
+OCR. Four model providers, a playground, and a container. What is left is image input and
+the optional commit path. See [Milestones](#milestones) for detail.
 
 Decisions in this document are recorded with the reason behind them, including the ones that
 were revised after measurement. Where a note says a field or library behaves in a particular
@@ -10,7 +11,8 @@ way, that behaviour was tested rather than assumed.
 
 SchemaGate turns a file into rows that fit a Postgres table you already own. It reads the
 table definition from the live database, builds a validation model from it at runtime, and
-constrains an LLM to produce output that matches. There is no UI. The API is the product.
+constrains an LLM to produce output that matches. The API is the product; the page served at
+the root is a playground for judging it, not a dashboard for operating it.
 
 ## Scope
 
@@ -23,7 +25,7 @@ In scope for the first working version:
 Explicitly out of scope for now:
 
 - Writing rows to the database. The service returns JSON and the caller decides. An opt-in
-  commit path is milestone 8, and it stays opt-in.
+  commit path is milestone 10, and it stays opt-in.
 - Any frontend, job queue, or persistent storage of uploaded files.
 - Training or hosting models.
 
@@ -97,13 +99,19 @@ line and is the fallback if we ever need its `sql.Identifier` composition or pip
 | `timestamp(tz)`       | `str`, then `datetime` |                                               |
 | enum type             | `Literal[...]`         | labels read from `pg_enum`                    |
 | `T[]`                 | `list[T]`              |                                               |
-| `json`, `jsonb`       | unsupported in v1      | strict mode cannot express a free-form object |
+| `json`, `jsonb`       | `str` holding JSON     | parsed and checked after. See below.          |
 
 Two decisions here matter more than the rest.
 
 **Money is never a float.** An invoice total that round-trips through IEEE 754 is a corrupted
 invoice. `numeric` columns cross the model boundary as strings and become `Decimal` in the
 coercion step.
+
+**Free-form objects go through a string.** Strict structured output cannot describe an object
+of unknown shape, which is the documented limitation. It can carry one inside a string, so a
+`jsonb` column compiles to `str`, the model writes JSON into it, and the gate parses and
+checks the result. The same move as `numeric`, for the same reason: the boundary type is
+chosen to survive the contract, not to look like the destination.
 
 **Nullable is not optional.** Strict structured output on both providers requires every
 property to appear in `required` and forbids additional properties. A nullable column
@@ -481,9 +489,9 @@ the smallest implementation that passes it.
 
 0. **Done.** Repository skeleton: packaging, configuration, lint, types, CI, an app that starts
    and answers `/health`.
-1. **Done, pending CI.** Introspection and the model factory, tested against a Postgres
-   container with a table covering every type in the mapping above, enum labels and column
-   comments. The catalog query itself has not yet run anywhere.
+1. **Done.** Introspection and the model factory, verified in CI against a real PostgreSQL:
+   every type in the mapping above, enum labels, column comments, varchar length, numeric
+   scale, and the identity, generated and default flags.
 2. **Done.** Tabular fast path. CSV and spreadsheets to rows keyed by column, no model call.
 3. **Done.** Native PDF path, thread-offloaded, plus content-based upload routing.
 4. **Done.** Validation gate. Coercion, database constraints and arithmetic rules. Pure logic,
@@ -492,15 +500,21 @@ the smallest implementation that passes it.
    validation gate already in place to catch well-formed wrong answers.
 6. **Done.** Docker image, compose file, README and playground. Someone else runs it against
    their own database without asking a question.
-7. Hosted extractors, Anthropic then OpenAI. Two more implementations of the same protocol,
-   which is what proves the protocol was the right shape.
-8. Local selective OCR for scanned PDFs, plus the bundled-model image tag.
+7. **Done.** Hosted extractors, Anthropic and OpenAI, plus an OpenAI-compatible one covering
+   Groq, OpenRouter, Together, DeepSeek, vLLM and LM Studio through the same adapter. Three
+   more implementations of the protocol, which is what proved it was the right shape.
+8. **Done.** Local OCR for scanned PDFs, behind an `ocr` extra. 822 ms on a scanned invoice
+   with nothing leaving the machine, which is the point: the alternative was posting scans
+   to a vision API, contradicting the reason to run this inside your own network.
 9. Image input, with normalization and vision as an opt-in fallback.
 10. Optional commit to the database, off by default.
+11. Other databases. MySQL exposes column comments and enum members through
+    `information_schema`, so it is genuinely viable; SQLite has neither but works for basic
+    types. Both need the catalog read to become an interface rather than one query.
 
 Two orderings here are deliberate. The validation gate precedes the first real extractor,
-because a grammar-constrained local model produces well-formed wrong answers and the gate is
-what catches them. And milestone 6 sits in the middle rather than at the end, because software
+because a schema-constrained model produces well-formed wrong answers and the gate is what
+catches them. And milestone 6 sits in the middle rather than at the end, because software
 nobody else can deploy is not finished, and learning that after ten milestones is worse than
 learning it after five.
 
