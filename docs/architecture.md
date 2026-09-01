@@ -36,11 +36,20 @@ Five stages, each a plain function with typed input and output. No agent loop, n
 driven by model judgement.
 
 ```
-upload -> discover -> route -> extract -> validate -> response
-             |          |         |           |
-        pg_catalog   file type   LLM or   arithmetic
-          query      + PDF class  none    and type checks
+              your PostgreSQL table
+      columns, types, enums, limits, comments
+                       |
+                       |  read live, on every request
+                       v
+   document  ->  parsed  ->  model  ->  checked  ->  rows
+   PDF, image     text or    working    types,       ready to
+   CSV, sheet     a grid     from your  maths,       INSERT
+                             schema     limits
 ```
+
+The model is used on every path, for different work. A PDF has no grid, so the model reads
+the document and produces the rows. A spreadsheet has a grid, so the model decides only what
+the headings mean and the values are copied by code, exactly.
 
 ### 1. Discover
 

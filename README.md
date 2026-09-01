@@ -4,11 +4,14 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.14-blue)](https://www.python.org/downloads/)
 [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
 
-Turn a document into rows that fit a PostgreSQL table you already own.
+**Document in, rows out, shaped by your PostgreSQL table.**
 
-SchemaGate reads your table definition from the live database, compiles it into a validation
-model at runtime, and constrains extraction so the output cannot disagree with your schema. It
-returns JSON over HTTP and writes nothing to your database.
+Point it at a table. It reads that table's definition from the live database, sends an LLM a
+schema built from it, and constrains the model so the output cannot disagree with your
+columns. Then it checks the result and hands you JSON you can insert.
+
+The table is the specification, so there is nothing to configure and no mapping file to keep
+in step. Alter a column and the next upload follows it.
 
 The API is the product. There is a page at the root for trying it and for watching what the
 pipeline did, but it is a playground rather than somewhere anyone is meant to work: no
@@ -59,6 +62,60 @@ back, nothing is silently repaired, and you decide what to do.
 `stages` is the path the document actually took, with what each step found and how long it
 spent. On a PDF the model is always the slowest step by an order of magnitude, which is
 worth being able to see rather than being asked to believe.
+
+## How it works
+
+Your table is the specification. Nothing else is.
+
+```
+              your PostgreSQL table
+      columns, types, enums, limits, comments
+                       |
+                       |  read live, on every request
+                       v
+   document  ->  parsed  ->  model  ->  checked  ->  rows
+   PDF, image     text or    working    types,       ready to
+   CSV, sheet     a grid     from your  maths,       INSERT
+                             schema     limits
+```
+
+Five steps, and the third is the only one that involves a model.
+
+1. **Read your table** from `pg_catalog`. Column names, types, enum members, length
+   limits, decimal scale, and your `COMMENT ON COLUMN` text. Every request, so a column you
+   alter takes effect on the next upload.
+2. **Read the document.** A PDF becomes text, a scan goes through OCR, a photo is normalised,
+   a CSV or spreadsheet becomes a grid. No model yet.
+3. **Ask the model, constrained by your schema.** This is the step that understands things.
+4. **Check what came back.** Types, lengths, enum members, and any arithmetic you configured.
+5. **Return JSON** shaped like your table. You run the `INSERT`. SchemaGate never writes.
+
+### What the model is asked, and when
+
+It is used on every path, but for different work, because the documents differ.
+
+| The file is | The model is asked to | Because |
+| --- | --- | --- |
+| a PDF, scan or photo | read the document and produce the rows | there is no grid to copy; the values have to be understood |
+| a spreadsheet or CSV | match the headings to your columns | `Fakturanr` means `invoice_number` and no amount of string handling will work that out |
+
+On a spreadsheet the model decides **what the columns mean**, then code copies the values
+exactly. That split is deliberate. For a five thousand row export, transcription costs around
+$3.60 against $0.0001 for the headings, but the money is not the argument: a model rewriting
+five thousand rows can drop one or change a digit, and code copying a column cannot. On numbers
+people reconcile, that is the difference between exact and nearly right.
+
+Headings that match by spelling never reach a model at all, and an answer is cached against the
+headings and your table, so the second file from that supplier is free again.
+
+### What "constrained" means
+
+The schema is sent with the request, and the provider restricts generation to it while the
+tokens are being chosen. The model cannot return a column you do not have, a value outside your
+enum, or a field of the wrong type, because none of those are expressible.
+
+That guarantees the shape, not the truth. A constrained model still returns well formed wrong
+values, which is why step 4 exists and why it was built before any model was connected.
 
 ## Requirements
 
@@ -162,13 +219,13 @@ the problem entirely by being one variable each.
 
 ## What it reads
 
-| Input | Parser | Model call |
+| Input | Parser | What the model does |
 | --- | --- | --- |
-| CSV, TSV | stdlib `csv` with encoding detection | headings only, if needed |
-| XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | headings only, if needed |
-| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | yes |
-| Scanned PDF | local OCR, escalating to vision when OCR says it failed | yes |
-| Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then read by a vision model | yes |
+| CSV, TSV | stdlib `csv` with encoding detection | matches headings to columns, only if spelling did not |
+| XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | matches headings to columns, only if spelling did not |
+| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | reads the document and produces the rows |
+| Scanned PDF | local OCR, escalating to vision when OCR says it failed | reads the document and produces the rows |
+| Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then sent as an image | reads the page and produces the rows |
 
 Uploads are identified by content, not by filename or the declared content type. A PDF named
 `statement.csv` is treated as a PDF.
