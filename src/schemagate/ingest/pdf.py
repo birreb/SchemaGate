@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import os
 import pathlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
 
@@ -8,6 +10,7 @@ import anyio.to_thread
 import pdf_inspector
 
 from schemagate.errors import MalformedDocumentError
+from schemagate.ingest.images import NormalisedImage, normalise
 
 # Classifications where the page carries no recoverable text layer.
 IMAGE_TYPES = frozenset({"scanned", "image_based"})
@@ -24,6 +27,11 @@ class PdfText:
     has_encoding_issues: bool
     pages_flagged_sparse: tuple[int, ...]
     route: str = "native"
+    # The parser's own verdict on its OCR. It reports which pages it could
+    # not read well enough, which is the difference between escalating and
+    # handing a model the nonsense OCR produced.
+    hosted_recommended: bool = False
+    pages_for_vision: tuple[int, ...] = ()
 
 
 @cache
@@ -87,16 +95,20 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
 
     if needs_ocr and allow_ocr and ocr_available():
         recovered = _run_ocr(data)
-        if recovered is not None and recovered.strip():
-            return PdfText(
-                markdown=recovered,
-                page_count=result.page_count,
-                pdf_type=result.pdf_type,
-                needs_ocr=False,
-                has_encoding_issues=result.has_encoding_issues,
-                pages_flagged_sparse=tuple(result.pages_needing_ocr),
-                route="ocr",
-            )
+        if recovered is not None:
+            text, escalate = recovered
+            if text.strip() or escalate:
+                return PdfText(
+                    markdown=text,
+                    page_count=result.page_count,
+                    pdf_type=result.pdf_type,
+                    needs_ocr=False,
+                    has_encoding_issues=result.has_encoding_issues,
+                    pages_flagged_sparse=tuple(result.pages_needing_ocr),
+                    route="ocr",
+                    hosted_recommended=bool(escalate),
+                    pages_for_vision=escalate,
+                )
 
     return PdfText(
         markdown=markdown,
@@ -109,17 +121,51 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
     )
 
 
-def _run_ocr(data: bytes) -> str | None:
-    """Read the pages the native layer could not.
+def _run_ocr(data: bytes) -> tuple[str, tuple[int, ...]] | None:
+    """Read the pages the native layer could not, and note any it could not either.
 
     `auto` routes only the pages that failed, so a mixed document pays for OCR
     on the scanned pages alone. A failure here is not fatal: the caller still has
     the native result and the knowledge that it was not enough.
+
+    `pages_recommending_hosted` is the parser saying its own output is not worth
+    trusting for those pages. Measured on a small blurred scan it returns a
+    single wrong character, so ignoring the signal would hand that to a model as
+    the document and get a confident, invented answer back.
     """
     try:
-        return str(pdf_inspector.process_pdf_with_ocr_bytes(data, mode="auto").markdown or "")
+        result = pdf_inspector.process_pdf_with_ocr_bytes(data, mode="auto")
     except (ValueError, OSError, RuntimeError):
         return None
+    escalate = tuple(getattr(result, "pages_recommending_hosted", ()) or ())
+    return str(result.markdown or ""), escalate
+
+
+def render_pages(data: bytes, pages: Sequence[int]) -> tuple[NormalisedImage, ...]:
+    """Rasterise one-indexed pages so a vision model can look at them.
+
+    Uses the PDFium that already ships with the `ocr` extra. PyMuPDF is the
+    better known choice for this and is AGPL, which would make this project
+    AGPL too.
+    """
+    import pypdfium2
+
+    rendered: list[NormalisedImage] = []
+    document = pypdfium2.PdfDocument(data)
+    try:
+        for number in pages:
+            index = number - 1
+            if not 0 <= index < len(document):
+                continue
+            # 200 DPI against the 72 a PDF point assumes. Enough for small print
+            # without producing an image the model will only downscale again.
+            bitmap = document[index].render(scale=200 / 72)
+            buffer = io.BytesIO()
+            bitmap.to_pil().save(buffer, format="PNG")
+            rendered.append(normalise(buffer.getvalue()))
+    finally:
+        document.close()
+    return tuple(rendered)
 
 
 async def read_pdf_async(data: bytes, allow_ocr: bool = False) -> PdfText:

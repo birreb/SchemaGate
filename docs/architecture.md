@@ -188,6 +188,12 @@ diagnostics and is deliberately not part of the decision.
 Worth noting for the same reason: a blank page classifies as `scanned` with 0.9 confidence.
 Confidence is not a usable gate either.
 
+**OCR reports its own failures, and they are acted on.** `pages_recommending_hosted` names
+the pages the parser could not read well enough. Measured on a small blurred scan, PP-OCR
+returns a single wrong character while setting that field, so ignoring it would hand a model
+nonsense as the document. Those pages are rasterised and sent to vision instead. A clean scan
+never pays for it.
+
 **Local OCR before vision.** `process_pdf_with_ocr` routes only the pages native extraction
 rejected, and returns per-page provenance (`native`, `ocr`, `fused`). The wheel deliberately
 ships no models, so ONNX artifacts are downloaded once and passed as `model_directory` with

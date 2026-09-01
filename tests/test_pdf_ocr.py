@@ -94,3 +94,93 @@ async def test_the_pipeline_reads_a_scanned_invoice_end_to_end() -> None:
     assert result.route is Route.OCR_PDF
     assert "INV-2026-0147" in seen[0], "the text OCR recovered is what the model reads"
     assert result.status == "ok"
+
+
+def unreadable_scan() -> bytes:
+    """Small and blurred enough that PP-OCR gives up and says so."""
+    from PIL import ImageFilter
+
+    image = Image.new("RGB", (1700, 900), "white")
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("arial.ttf", 20)
+    except OSError:
+        font = None
+    for index, line in enumerate(["INVOICE INV-2026-0147", "Total 11425.24"]):
+        draw.text((50, 60 + index * 90), line, fill="black", font=font)
+    image = image.filter(ImageFilter.GaussianBlur(4))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    document = FPDF()
+    document.add_page()
+    document.image(buffer, x=6, y=6, w=198)
+    return bytes(document.output())
+
+
+def test_a_readable_scan_does_not_ask_for_help() -> None:
+    result = read_pdf(scanned_pdf(), allow_ocr=True)
+
+    assert result.hosted_recommended is False
+
+
+def test_the_parser_admits_when_its_ocr_failed() -> None:
+    result = read_pdf(unreadable_scan(), allow_ocr=True)
+
+    assert result.hosted_recommended is True, (
+        "without this the garbage OCR produced would be handed to the model as "
+        "the document, and the answer would look confident and be invented"
+    )
+
+
+def test_pages_to_escalate_are_named() -> None:
+    result = read_pdf(unreadable_scan(), allow_ocr=True)
+
+    assert result.pages_for_vision == (1,), (
+        "a mixed document should only re-read the pages that failed"
+    )
+
+
+def test_pdf_pages_can_be_rendered_for_vision() -> None:
+    from schemagate.ingest.pdf import render_pages
+
+    images = render_pages(unreadable_scan(), (1,))
+
+    assert len(images) == 1
+    assert images[0].media_type in {"image/png", "image/jpeg"}
+    assert images[0].width > 0
+
+
+async def test_a_scan_ocr_cannot_read_is_escalated_to_vision() -> None:
+    from collections.abc import Sequence
+    from typing import Any
+
+    from schemagate.extract.base import ModelT
+    from schemagate.ingest.images import NormalisedImage
+    from schemagate.pipeline import Route, process
+    from schemagate.schema.spec import ColumnSpec, TableSchema
+
+    seen: list[tuple[str, Sequence[NormalisedImage]]] = []
+
+    class Recorder:
+        async def extract(
+            self,
+            document: str,
+            model: type[ModelT],
+            images: Sequence[NormalisedImage] = (),
+        ) -> ModelT:
+            seen.append((document, images))
+            return model.model_validate({"rows": [{"invoice_number": "INV-2026-0147"}]})
+
+    schema = TableSchema(
+        schema="public",
+        name="invoices",
+        columns=(ColumnSpec(name="invoice_number", data_type="text", nullable=False, ordinal=1),),
+    )
+
+    result: Any = await process(unreadable_scan(), "scan.pdf", schema, extractor=Recorder())
+
+    assert result.route is Route.VISION
+    document, images = seen[0]
+    assert len(images) == 1, "the page itself is sent, not the nonsense OCR made of it"
+    assert "\u4e8c" not in document, "the failed OCR output must not reach the model"

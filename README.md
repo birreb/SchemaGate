@@ -151,7 +151,7 @@ the problem entirely by being one variable each.
 | CSV, TSV | stdlib `csv` with encoding detection | no |
 | XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | no |
 | PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | yes |
-| Scanned PDF | local OCR, with the `ocr` extra | yes |
+| Scanned PDF | local OCR, escalating to vision when OCR says it failed | yes |
 | Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then read by a vision model | yes |
 
 Uploads are identified by content, not by filename or the declared content type. A PDF named
@@ -159,6 +159,20 @@ Uploads are identified by content, not by filename or the declared content type.
 
 Tabular files never reach a model, so they cost nothing to process. `timings_ms` in every
 response shows where the time actually went.
+
+## Scanned pages
+
+Local OCR runs first, using [PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR), which
+independent 2026 comparisons name as the best default for printed text and the most robust to
+skew, warping and uneven lighting. It takes under a second, and the page never leaves your
+network.
+
+What matters more is what happens when it fails. The parser reports which pages its own OCR
+could not read well enough, and those pages are rendered and sent to a vision model instead of
+being passed on. On a small blurred scan, PP-OCR returns a single wrong character; handing that
+to a model as the document would produce an answer that looked confident and was invented.
+
+So a scan costs nothing when it is clean, and escalates only when it has to.
 
 ## Photographs
 
@@ -261,9 +275,10 @@ Worth knowing before you evaluate it.
   guaranteed; the content is not. A smaller model is wrong more often, but none of them are
   never wrong. That is what the checks are for, and why they were built before any model was
   connected.
-- **Scanned pages are read by OCR, which misreads things too.** It is a second place a value
-  can go wrong, on documents that were already the hardest to read. The checks apply equally,
-  but a scan deserves more suspicion than a digital PDF.
+- **A scan is read twice before it is trusted.** Local OCR runs first, and the parser reports
+  which pages it could not read well enough. Those pages are re-read by a vision model rather
+  than passed on, because bad OCR output produces a confident, invented answer rather than an
+  obviously empty one. A scan still deserves more suspicion than a digital PDF.
 
 ## Development
 

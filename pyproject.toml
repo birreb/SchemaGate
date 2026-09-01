@@ -17,6 +17,7 @@ dependencies = [
     "pillow-heif>=1.6.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "pypdfium2>=5.13.0",
     "python-calamine>=0.8.2",
     "python-multipart>=0.0.20",
 ]
@@ -25,7 +26,7 @@ dependencies = [
 server = ["uvicorn[standard]>=0.32"]
 # Local OCR for scanned documents. Separate because ONNX Runtime and PDFium
 # add tens of megabytes, and most deployments never see a scan.
-ocr = ["onnxruntime>=1.29", "pypdfium2>=5.13"]
+ocr = ["onnxruntime>=1.29"]
 
 [dependency-groups]
 dev = [
@@ -77,6 +78,6 @@ files = ["src", "tests"]
 # is a test-only dependency used to draw fixture images, so not following it
 # costs nothing and stops the chain before numpy.
 [[tool.mypy.overrides]]
-module = ["PIL.*", "numpy.*", "onnxruntime.*", "pypdfium2_raw.*", "pillow_heif.*"]
+module = ["PIL.*", "numpy.*", "onnxruntime.*", "pypdfium2_raw.*", "pypdfium2.*", "pillow_heif.*"]
 ignore_missing_imports = true
 follow_imports = "skip"

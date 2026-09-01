@@ -1744,6 +1744,7 @@ dependencies = [
     { name = "pillow-heif" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pypdfium2" },
     { name = "python-calamine" },
     { name = "python-multipart" },
 ]
@@ -1751,7 +1752,6 @@ dependencies = [
 [package.optional-dependencies]
 ocr = [
     { name = "onnxruntime" },
-    { name = "pypdfium2" },
 ]
 server = [
     { name = "uvicorn", extra = ["standard"] },
@@ -1786,7 +1786,7 @@ requires-dist = [
     { name = "pillow-heif", specifier = ">=1.6.0" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
-    { name = "pypdfium2", marker = "extra == 'ocr'", specifier = ">=5.13" },
+    { name = "pypdfium2", specifier = ">=5.13.0" },
     { name = "python-calamine", specifier = ">=0.8.2" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32" },

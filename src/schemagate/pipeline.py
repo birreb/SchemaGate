@@ -10,7 +10,7 @@ import anyio.to_thread
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import Extractor, compose
 from schemagate.ingest.images import NormalisedImage, normalise
-from schemagate.ingest.pdf import read_pdf_async
+from schemagate.ingest.pdf import read_pdf_async, render_pages
 from schemagate.ingest.router import FileKind, detect_kind
 from schemagate.ingest.tabular import Table, align, read_csv, read_spreadsheet
 from schemagate.schema.factory import build_container_model
@@ -102,6 +102,15 @@ async def _read(
                 "Install the `ocr` extra to read scanned documents without sending "
                 "them anywhere."
             )
+        if parsed.hosted_recommended:
+            # The parser is telling us its own OCR is not worth trusting for
+            # these pages. Sending that text on would produce a confident,
+            # invented answer, so the pages themselves go to the model instead.
+            images = await anyio.to_thread.run_sync(render_pages, data, parsed.pages_for_vision)
+            if images:
+                rows = await _ask(extractor, "", schema, instructions, images)
+                return Route.VISION, rows, ((), ())
+
         route = Route.OCR_PDF if parsed.route == "ocr" else Route.NATIVE_PDF
         rows = await _ask(extractor, parsed.markdown, schema, instructions)
         return route, rows, ((), ())
