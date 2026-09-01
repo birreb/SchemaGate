@@ -172,3 +172,30 @@ def test_the_container_validates_many_rows() -> None:
     parsed = container.model_validate({"rows": [{"total": "10.00"}, {"total": "20.00"}]})
 
     assert [row.total for row in parsed.rows] == ["10.00", "20.00"]  # type: ignore[attr-defined]
+
+
+def test_a_date_column_tells_the_model_what_shape_it_wants() -> None:
+    schema = build_row_model(table(column("issued_on", "date"))).model_json_schema()
+
+    described = schema["properties"]["issued_on"].get("description", "")
+
+    assert "YYYY-MM-DD" in described, (
+        "the instructions say copy values verbatim, which protects numbers but "
+        "leaves dates in whatever the document used; the column can say better"
+    )
+
+
+def test_the_hint_is_added_to_an_existing_comment_rather_than_replacing_it() -> None:
+    spec = column("issued_on", "date", description="Date the supplier issued it")
+    schema = build_row_model(table(spec)).model_json_schema()
+
+    described = schema["properties"]["issued_on"]["description"]
+
+    assert described.startswith("Date the supplier issued it")
+    assert "YYYY-MM-DD" in described
+
+
+def test_columns_that_are_not_dates_are_left_alone() -> None:
+    schema = build_row_model(table(column("supplier", "text"))).model_json_schema()
+
+    assert "description" not in schema["properties"]["supplier"]

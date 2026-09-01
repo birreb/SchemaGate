@@ -289,3 +289,49 @@ def test_a_missing_value_is_still_a_failure_without_a_fallback() -> None:
     _, failures = coerce_rows(({"supplier": None},), schema(spec))
 
     assert [f.rule for f in failures] == ["not_null"]
+
+
+# A date written with a month name cannot be misread. A date written only in
+# numbers can, and those stay refused.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "01 September 2026",
+        "1 September 2026",
+        "01 Sep 2026",
+        "September 1, 2026",
+        "Sep 1 2026",
+        "September 01 2026",
+    ],
+)
+def test_a_month_name_makes_a_date_unambiguous(text: str) -> None:
+    assert coerce_one(text, column(data_type="date")) == dt.date(2026, 9, 1)
+
+
+def test_month_names_are_read_the_same_way_in_any_locale() -> None:
+    """Never %B: that follows the machine's locale and would fail on a Swedish host."""
+    assert coerce_one("01 December 2026", column(data_type="date")) == dt.date(2026, 12, 1)
+    assert coerce_one("01 MARCH 2026", column(data_type="date")) == dt.date(2026, 3, 1)
+
+
+def test_iso_is_still_read() -> None:
+    assert coerce_one("2026-09-01", column(data_type="date")) == dt.date(2026, 9, 1)
+
+
+@pytest.mark.parametrize("text", ["05/01/2026", "05-01-2026", "01.02.2026"])
+def test_a_numeric_only_date_is_still_refused(text: str) -> None:
+    assert failure_for(text, column(data_type="date")).rule == "type", (
+        "without a month name there is nothing to say which number is the month"
+    )
+
+
+def test_a_month_name_that_is_not_one_is_refused() -> None:
+    assert failure_for("01 Smarch 2026", column(data_type="date")).rule == "type"
+
+
+def test_a_timestamp_may_also_carry_a_month_name() -> None:
+    value = coerce_one("01 September 2026 14:30", column(data_type="timestamp"))
+
+    assert value == dt.datetime(2026, 9, 1, 14, 30)

@@ -156,6 +156,5 @@ def make_model_client(
         return AsyncClient(host=base_url or ollama_host)
 
     raise ConfigurationError(
-        f"Unknown provider {provider!r}. Choose anthropic, openai, "
-        f"openai_compatible or ollama."
+        f"Unknown provider {provider!r}. Choose anthropic, openai, openai_compatible or ollama."
     )

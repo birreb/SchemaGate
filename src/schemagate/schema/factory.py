@@ -34,6 +34,18 @@ SCALAR_TYPES: dict[str, type] = {
 
 _MODEL_CONFIG = ConfigDict(extra="forbid")
 
+# The instructions tell a model to copy values exactly, which is what keeps it
+# from reformatting a number. That leaves dates in whatever the document used,
+# and "01 September 2026" is a perfectly reasonable thing to copy. The column
+# knows what it wants, so it says so.
+FORMAT_HINTS = {
+    "date": "Format as YYYY-MM-DD.",
+    "timestamp": "Format as YYYY-MM-DDTHH:MM:SS.",
+    "timestamptz": "Format as YYYY-MM-DDTHH:MM:SS with an offset.",
+    "time": "Format as HH:MM:SS.",
+    "timetz": "Format as HH:MM:SS with an offset.",
+}
+
 
 @lru_cache(maxsize=256)
 def build_row_model(table: TableSchema) -> type[BaseModel]:
@@ -50,7 +62,7 @@ def build_row_model(table: TableSchema) -> type[BaseModel]:
         )
 
     fields: dict[str, Any] = {
-        column.name: (_annotation_for(column), Field(description=column.description))
+        column.name: (_annotation_for(column), Field(description=_describe(column)))
         for column in columns
     }
     return create_model(_model_name(table, "Row"), __config__=_MODEL_CONFIG, **fields)
@@ -69,6 +81,17 @@ def build_container_model(table: TableSchema) -> type[BaseModel]:
         Field(description=f"Rows found in the document, for {table.qualified_name}."),
     )
     return create_model(_model_name(table, "Rows"), __config__=_MODEL_CONFIG, rows=rows)
+
+
+def _describe(column: ColumnSpec) -> str | None:
+    """What the model is told about this column.
+
+    The developer's own comment first, since it carries the meaning, followed by
+    a format note where the type has one worth stating.
+    """
+    hint = FORMAT_HINTS.get(column.data_type)
+    parts = [part for part in (column.description, hint) if part]
+    return " ".join(parts) or None
 
 
 def _annotation_for(column: ColumnSpec) -> Any:

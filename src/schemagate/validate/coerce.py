@@ -1,4 +1,5 @@
 import datetime as dt
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
@@ -21,6 +22,37 @@ EXACT_TYPES = frozenset({"numeric", "decimal"})
 # A separator followed by exactly three digits is either a thousands separator
 # or a decimal point, and nothing in the string says which.
 GROUP_SIZE = 3
+
+# Spelled out rather than using %B or %b, which follow the machine's locale.
+# On a Swedish host those expect Swedish month names and a document in English
+# would be refused for a reason nobody could see.
+MONTHS = {
+    name: number
+    for number, names in enumerate(
+        [
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sep", "sept"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ],
+        start=1,
+    )
+    for name in names
+}
+
+# A month name settles which number is the month, so these are safe to read. A
+# date written only in numbers is not, and stays refused: 05/01/2026 is January
+# or May depending on who typed it.
+DAY_FIRST = re.compile(r"^(\d{1,2})\s+([A-Za-z]+)\.?,?\s+(\d{4})$")
+MONTH_FIRST = re.compile(r"^([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$")
 
 
 class _AmbiguousNumberError(ValueError):
@@ -156,9 +188,9 @@ def _convert_scalar(
     if data_type == "bool":
         return _to_bool(text)
     if data_type == "date":
-        return dt.date.fromisoformat(text.strip())
+        return _to_date(text)
     if data_type in {"timestamp", "timestamptz"}:
-        return dt.datetime.fromisoformat(text.strip())
+        return _to_datetime(text)
     if data_type in {"time", "timetz"}:
         return dt.time.fromisoformat(text.strip())
     if data_type == "uuid":
@@ -191,6 +223,60 @@ def _to_int(text: str, scale: int | None = None, convention: str | None = None) 
             "means the source already lost the exact value"
         )
     return -int(digits) if negative else int(digits)
+
+
+def _to_date(text: str) -> dt.date:
+    body = text.strip()
+    try:
+        return dt.date.fromisoformat(body)
+    except ValueError:
+        pass
+
+    named = _from_month_name(body)
+    if named is None:
+        raise ValueError(
+            "expected an ISO date like 2026-09-01, or one naming its month like "
+            "'01 September 2026'. A date written only in numbers cannot be read "
+            "safely, since 05/01/2026 is January or May depending on the writer"
+        )
+    return named
+
+
+def _to_datetime(text: str) -> dt.datetime:
+    body = text.strip()
+    try:
+        return dt.datetime.fromisoformat(body)
+    except ValueError:
+        pass
+
+    # A named date may carry a time after it.
+    head, _, tail = body.rpartition(" ")
+    if ":" in tail:
+        day = _from_month_name(head.strip())
+        if day is not None:
+            return dt.datetime.combine(day, dt.time.fromisoformat(tail))
+
+    named = _from_month_name(body)
+    if named is None:
+        raise ValueError("expected an ISO timestamp, or a date naming its month")
+    return dt.datetime.combine(named, dt.time())
+
+
+def _from_month_name(body: str) -> dt.date | None:
+    """Read a date whose month is written as a word, in any order."""
+    for pattern, order in ((DAY_FIRST, "dmy"), (MONTH_FIRST, "mdy")):
+        found = pattern.match(body)
+        if not found:
+            continue
+        day, name, year = found.group(1, 2, 3) if order == "dmy" else found.group(2, 1, 3)
+        month = MONTHS.get(name.casefold())
+        if month is None:
+            return None
+        try:
+            return dt.date(int(year), month, int(day))
+        except ValueError:
+            return None
+    return None
 
 
 def _to_bool(text: str) -> bool:

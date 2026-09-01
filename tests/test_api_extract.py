@@ -294,6 +294,5 @@ def test_the_playground_asks_the_provider_for_its_models() -> None:
     page = client().get("/").text
 
     assert "/v1/models" in page, (
-        "a hardcoded list would go stale and would not reflect what a given "
-        "key is entitled to"
+        "a hardcoded list would go stale and would not reflect what a given key is entitled to"
     )

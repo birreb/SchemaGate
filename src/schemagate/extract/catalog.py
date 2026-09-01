@@ -46,8 +46,7 @@ async def list_models(provider: str, client: Any) -> ModelListing:
     """
     if provider not in FALLBACKS:
         raise ValueError(
-            f"Unknown provider {provider!r}. Choose anthropic, openai, "
-            f"openai_compatible or ollama."
+            f"Unknown provider {provider!r}. Choose anthropic, openai, openai_compatible or ollama."
         )
 
     try:
