@@ -1,6 +1,4 @@
-<img src="assets/logo.png" alt="" width="76">
-
-# SchemaGate
+<img src="assets/banner.png" alt="SchemaGate" width="335">
 
 [![CI](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml/badge.svg)](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.14-blue)](https://www.python.org/downloads/)
