@@ -144,8 +144,90 @@ enterprise tier, and the point of this is that documents stay on your network.
 - Docker, or Python 3.11 or newer.
 - For PDFs, a model: Anthropic, OpenAI, any OpenAI-compatible endpoint, or a local
   [Ollama](https://ollama.com). Spreadsheets and CSVs need no model at all.
-- For scanned PDFs, `pip install schemagate[ocr]`. OCR runs locally, so a scan never leaves
+- For scanned PDFs, `pip install 'schemagate[ocr]'`. OCR runs locally, so a scan never leaves
   your network. Separate because it adds about 20 MB of shared libraries.
+
+## Install
+
+The core is the schema compiler, the validation gate and the tabular path. Everything with a
+heavyweight dependency is an extra, so a deployment reading spreadsheets into Postgres does
+not install three model SDKs and an imaging library.
+
+```console
+$ pip install 'schemagate[server,postgres,anthropic]'   # a typical service
+$ pip install 'schemagate[postgres,anthropic]'          # library only, no HTTP
+$ pip install 'schemagate[all]'                         # everything
+```
+
+| Extra | Installs | Needed for |
+| --- | --- | --- |
+| `server` | FastAPI, uvicorn | the HTTP service and the `serve` command |
+| `postgres` | asyncpg | reading table definitions from a live database |
+| `pdf` | pdf-inspector, Pillow | PDFs with a text layer |
+| `ocr` | ONNX Runtime, PDFium, and `pdf` | scanned PDFs, read locally |
+| `images` | Pillow, pillow-heif | photographs and screenshots |
+| `anthropic`, `openai`, `ollama` | that provider's SDK | extracting with it |
+
+Using a route whose extra is not installed raises an error naming the extra to install.
+
+## Use it as a library
+
+`process` takes a file, a table definition and an extractor, and returns validated rows. The
+HTTP endpoint is one caller of it.
+
+```python
+import asyncio
+
+from schemagate import ColumnSpec, TableSchema, make_extractor, process
+
+table = TableSchema(
+    schema="public",
+    name="invoices",
+    columns=(
+        ColumnSpec(name="invoice_number", data_type="text", nullable=False, ordinal=1),
+        ColumnSpec(name="total", data_type="numeric", nullable=False, ordinal=2, numeric_scale=2),
+    ),
+)
+
+result = asyncio.run(
+    process(
+        open("invoice.pdf", "rb").read(),
+        "invoice.pdf",
+        table,
+        extractor=make_extractor("anthropic"),
+    )
+)
+
+print(result.rows, result.spend.cost_usd)
+```
+
+Read the table from your own database with `PoolSchemas`, or build a `TableSchema` by hand as
+above. Neither path needs the `server` extra.
+
+To add the endpoints to an application you already have, use `install` rather than
+`app.mount`. Starlette does not run a mounted application's lifespan, so a mounted SchemaGate
+never builds its pool and fails on every request.
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from schemagate import install, shutdown
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await shutdown(app)  # closes only the pool it built for itself
+
+
+app = FastAPI(lifespan=lifespan)
+install(app)  # reads SCHEMAGATE_* from the environment
+```
+
+Pass your own `settings=`, `schemas=` or `extractor=` to `install` if you would rather not
+configure it through the environment. Skipping `shutdown` leaks connections at exit and
+nothing else.
 
 ## Try it in one command
 
@@ -174,8 +256,9 @@ than the one you configured.
 Without Docker:
 
 ```console
-$ uv sync --extra server
-$ uv run --env-file .env uvicorn schemagate.api.app:create_app --factory
+$ pip install 'schemagate[server,postgres,anthropic]'
+$ schemagate check                    # says what is configured, connects to nothing
+$ schemagate serve
 ```
 
 The service validates its configuration at startup and refuses to run without it, naming the
@@ -208,6 +291,78 @@ stored on the server or written to a log.
 One adapter covers the third row rather than one per vendor. Adding another
 OpenAI-compatible service costs nothing but a URL.
 
+## What it costs
+
+Every response says what the document cost, and so does the log line.
+
+```json
+"usage": {
+  "calls": 1,
+  "input_tokens": 3184,
+  "cached_input_tokens": 0,
+  "output_tokens": 210,
+  "total_tokens": 3394,
+  "cost_usd": "0.021170",
+  "by_model": [{ "model": "claude-opus-5", "calls": 1, "input_tokens": 3184, "output_tokens": 210 }]
+}
+```
+
+Tokens are always reported. `cost_usd` is null until you set `SCHEMAGATE_PRICES` from the
+provider's pricing page, because a price hardcoded here would go stale without anyone noticing.
+
+`by_model` lists every model that ran. A spreadsheet whose headings need matching by meaning
+pays for a small call on the otherwise free path, and it appears here like any other.
+
+Three settings affect the bill:
+
+- `SCHEMAGATE_EFFORT` defaults to `low`. The current models think by default at high effort,
+  and extraction against a compiled schema has a fixed answer shape and nothing to reason
+  about.
+- `SCHEMAGATE_HEADER_MODEL` runs the heading match on a cheaper model. It compares two short
+  lists of names, which does not need the model you chose for reading scans.
+- CSVs and spreadsheets do not call a model at all.
+
+To compare models on accuracy and cost together:
+
+```console
+$ schemagate evaluate --provider anthropic --model claude-haiku-4-5 \
+    --prices '{"claude-haiku-4-5": {"input": 1, "output": 5}}'
+```
+
+```
+case                       route        rows   cells      ms   tokens       cost
+--------------------------------------------------------------------------------
+invoices-csv               tabular         3   24/24      34        0          -
+invoices-european          tabular         3   24/24       0        0          -
+invoice-pdf                native_pdf      1     8/8    4102     3184  $0.020920
+--------------------------------------------------------------------------------
+3/3 cases clean, 56/56 cells (100.0%), 4136 ms, 3184 tokens, $0.020920
+```
+
+See [evals/README.md](evals/README.md) for the cases and how to add your own.
+
+## Who may call it
+
+Open by default. That is appropriate behind your own application and not appropriate
+elsewhere, since every extraction spends money and `/v1/tables` describes your schema.
+
+```
+SCHEMAGATE_API_KEYS=sk-one,sk-two
+SCHEMAGATE_RATE_LIMIT_PER_MINUTE=60
+```
+
+With keys set, every `/v1` endpoint requires one, as `Authorization: Bearer <key>` or
+`X-API-Key: <key>`. `/health` stays open so a load balancer probe still works. Several keys
+are accepted at once, for rotation. The playground has a field for the key and holds it in
+your browser.
+
+The rate limit is counted per key, or per client address when no keys are set. It counts in
+one process, so four workers allow four times the limit. Use a gateway if you need a
+distributed limit.
+
+`SCHEMAGATE_MAX_CONCURRENT_EXTRACTIONS` bounds documents in flight, defaulting to 8. Each one
+holds its upload, its rendered pages and its answer in memory at once, and OCR is CPU bound.
+
 ## Configuration
 
 Environment variables only. No config file.
@@ -227,6 +382,12 @@ Environment variables only. No config file.
 | `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
 | `SCHEMAGATE_INSTRUCTIONS` | `{}` | Free text passed to the model per table, for what a schema cannot say. A request may override it. |
 | `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
+| `SCHEMAGATE_EFFORT` | `low` | How hard the model is asked to think, where the provider exposes it. Empty sends nothing, which is what an older model needs. |
+| `SCHEMAGATE_HEADER_MODEL` | unset | A cheaper model for matching headings to columns by meaning. Unset, the extraction model does both. |
+| `SCHEMAGATE_PRICES` | `{}` | What each model costs per million tokens, `{"claude-opus-5": {"input": 5, "output": 25}}`. Without it, tokens are reported and `cost_usd` is null. |
+| `SCHEMAGATE_API_KEYS` | unset | Keys a caller must present. Comma separated or JSON. Empty leaves the endpoints open. |
+| `SCHEMAGATE_RATE_LIMIT_PER_MINUTE` | `0` | Requests per minute per caller. 0 is no limit. |
+| `SCHEMAGATE_MAX_CONCURRENT_EXTRACTIONS` | `8` | Documents read at once. 0 removes the bound. |
 
 API keys are never read by this project. Each SDK picks up its own standard variable
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), so the credential stays out of the codebase.
@@ -341,18 +502,23 @@ Multipart form.
 | `model`, `api_key`, `base_url` | no | Used with `provider`. The key is passed to the SDK and dropped: never stored, logged or returned. |
 | `instructions` | no | Guidance for the model, overriding what is configured for this table. |
 
-`200` with `status` of `ok` or `flagged`. `400` unknown connection, `404` unknown table,
-`403` per-request credentials are off, `413` upload too large, `415` unsupported file type,
-`422` unreadable document or an incomplete provider choice, `502` the model server failed,
-`503` the database is unreachable or no model is configured.
+`200` with `status` of `ok` or `flagged`, and a `usage` block saying what it cost. `400`
+unknown connection, `401` no key or an unknown one, `403` per-request credentials are off,
+`404` unknown table, `413` upload too large, `415` unsupported file type, `422` unreadable
+document or an incomplete provider choice, `429` past the rate limit, `502` the model server
+failed, `503` the database is unreachable, no model is configured, or an optional dependency
+this route needs is not installed.
+
+Send `Authorization: Bearer <key>` or `X-API-Key: <key>` when `SCHEMAGATE_API_KEYS` is set.
 
 Interactive docs at `/docs`, and the OpenAPI document at `/openapi.json`, which generates a
 client in any language. Liveness at `/health`.
 
 Every response carries an `X-Request-Id`, echoing one you send or assigning one otherwise.
 It appears on the log line for that request, so a report of something going wrong can be
-traced to what the service actually did. Logs record the table, route, row and failure
-counts and timings, and never a credential or any part of a document.
+traced to what the service actually did. Logs record the table, route, row and failure counts,
+timings, and what the document cost in tokens and money. Never a credential, and never any
+part of a document.
 
 ### Numbers are strings
 
@@ -392,6 +558,12 @@ Worth knowing before you evaluate it.
   which pages it could not read well enough. Those pages are re-read by a vision model rather
   than passed on, because bad OCR output produces a confident, invented answer rather than an
   obviously empty one. A scan still deserves more suspicion than a digital PDF.
+- **One document, one request, held open until it finishes.** There is no job queue and no
+  batch endpoint, so a client timeout discards an extraction that has already been paid for. A
+  document long enough to exceed the output limit is refused with a message saying to split
+  it, rather than returned truncated.
+- **The rate limit counts in one process.** Four workers allow four times the configured
+  limit. Use a gateway if that matters.
 
 ## Development
 
@@ -402,7 +574,12 @@ $ uv run ruff check . && uv run mypy
 ```
 
 Tests that need PostgreSQL are marked `postgres` and skip unless `SCHEMAGATE_TEST_DSN` is set.
-CI runs them against a real database on Python 3.11 through 3.14.
+CI runs them against a real database on Python 3.11 through 3.14. Two further jobs run the
+suite on Windows, where the PDF path loads shared libraries differently, and against an
+install with no extras, which checks that the core alone still works.
+
+`uv run schemagate evaluate` scores a provider on documents with known answers. It calls a
+real model, so it is not part of CI. See [evals/README.md](evals/README.md).
 
 [docs/architecture.md](docs/architecture.md) records the design and the reasoning behind each
 decision, including the ones that changed after being measured.

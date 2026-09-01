@@ -1,10 +1,11 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 9 built, and it runs. A document can be posted to the endpoint and
+Status: milestones 0 to 12 built, and it runs. A document can be posted to the endpoint and
 come back as validated rows: CSV, spreadsheets, digital PDFs, scanned PDFs through local OCR,
-and photographs through a vision model. Four model providers, a playground, and a container.
-What is left is the optional commit path and other databases. See
-[Milestones](#milestones) for detail.
+and photographs through a vision model. Four model providers, a playground, a container, a
+published package, per-request cost accounting, and a measured evaluation harness. What is
+left is the optional commit path and other databases. See [Milestones](#milestones) for
+detail.
 
 Decisions in this document are recorded with the reason behind them, including the ones that
 were revised after measurement. Where a note says a field or library behaves in a particular
@@ -385,10 +386,15 @@ check would report `0.1 + 0.2` as unequal to `0.3` and flag correct invoices.
 
 ```
 src/schemagate/
-  config.py            pydantic-settings, named connections, per-table rules
+  __init__.py          the public surface: process, create_app, install, the types
+  config.py            pydantic-settings, named connections, per-table rules, prices
+  cli.py               schemagate serve | check | evaluate
+  optional.py          import an extra, or name the extra that installs it
+  evaluate.py          accuracy, latency and cost on documents with known answers
   api/
-    app.py             app factory, lifespan owns the pool
+    app.py             app factory, and `install` for mounting into someone else's app
     routes.py          POST /v1/extract
+    security.py        API keys and a per-caller rate limit
   db/
     pool.py            asyncpg pool
     introspect.py      pg_catalog -> TableSchema
@@ -402,7 +408,9 @@ src/schemagate/
     pdf.py             pdf-inspector, native then selective OCR
     images.py          EXIF transpose, downscale, HEIC
   extract/
-    base.py            Extractor protocol
+    base.py            Extractor protocol, Extracted, Usage
+    cost.py            Price, Spend, and the tally that prices a document
+    factory.py         provider name -> extractor, with the SDKs imported lazily
     anthropic.py
     openai.py
   validate/
@@ -424,6 +432,15 @@ POST /v1/extract
   "route": "tabular" | "native_pdf" | "vision",
   "rows": [ { ... } ],
   "validation": { "checks": [...], "failures": [...] },
+  "usage": {
+    "calls": 1,
+    "input_tokens": 3184,
+    "cached_input_tokens": 0,
+    "output_tokens": 210,
+    "total_tokens": 3394,
+    "cost_usd": "0.021170",
+    "by_model": [ { "model": "claude-opus-5", "calls": 1, ... } ]
+  },
   "timings_ms": { "discover": 4, "parse": 120, "extract": 1400, "validate": 2 }
 }
 ```
@@ -445,12 +462,124 @@ Worth being honest about the numbers up front, because they set the design.
 
 So the tabular route is genuinely sub-100ms end to end, because it never calls a model. The
 PDF route is parse fast, then wait on the model. The engineering worth doing is on raising the
-share of documents that avoid the model entirely and on keeping the prompt prefix cacheable.
-Shaving the parser is not where the time is.
+share of documents that avoid the model entirely. Shaving the parser is not where the time is.
+
+An earlier version of this note said the work was in keeping the prompt prefix cacheable.
+That was wrong. Prefix caching on both hosted providers needs an explicit breakpoint, which
+nothing here sets, and a minimum cacheable prefix in the low thousands of tokens, which a
+system prompt of roughly two hundred does not reach. The part that varies is the whole
+document, so there is nothing to cache in any case. The system prompt is still identical per
+request, which costs nothing and is a precondition if caching ever becomes worthwhile.
 
 Note that current top-tier models reject `temperature` and `top_p` outright, so determinism is
 not a sampling parameter you get to set. It comes from the schema constraint and the
 validation gate.
+
+## Cost
+
+Every document that reaches a model has a price. The response reports rows, failures and
+timings, and now also what the extraction consumed, per model and in total.
+
+Three provider dialects, normalised at the adapter into one `Usage`:
+
+| | uncached input | cached input | output |
+| --- | --- | --- | --- |
+| Anthropic | `input_tokens` plus `cache_creation_input_tokens` | `cache_read_input_tokens`, reported beside the input count | `output_tokens` |
+| OpenAI | `prompt_tokens` minus the cached share | `prompt_tokens_details.cached_tokens`, reported inside `prompt_tokens` | `completion_tokens` |
+| Ollama | `prompt_eval_count` | not applicable | `eval_count` |
+
+Cached input keeps its own field because it is billed at a lower rate. Anthropic's cache
+writes fold into input, since that is how they are billed.
+
+Prices are configuration rather than a table in this repository, because a hardcoded price
+goes stale when a provider changes one and nothing here would detect it. A model with no
+configured price reports its tokens and a null `cost_usd`. One unpriced model in a run
+withholds the whole total, since a partial total would be read as a total.
+
+Money is a string in the response, for the same reason every other exact number here is: a
+JSON number is a float in every client parser. Quantised to six decimal places, since a single
+document can cost a fraction of a cent.
+
+Three settings affect what a document costs:
+
+- `SCHEMAGATE_EFFORT`, defaulting to `low`. The current models think by default at high
+  effort, and extraction against a compiled schema has a fixed answer shape and nothing to
+  reason about. It can be turned off entirely for a model that rejects the field.
+- `SCHEMAGATE_HEADER_MODEL`, which runs the heading match on a cheaper model. It compares two
+  short lists of names.
+- The tabular route, which calls no model at all.
+
+The heading call is reported in `by_model` like any other. It happens on the route that never
+sends the document to a provider, which is still true, and it is still a billed call.
+
+Not done: the Batch API, at half price for work that can wait. It suits bulk ingestion and
+needs an asynchronous job surface this service does not have, so it is milestone 14 rather
+than a change to this endpoint.
+
+## Access
+
+The service reads a database and spends a model budget on every document, so it is worth
+saying who may ask it to.
+
+Open remains the default. Generating a key at startup would mean an operator has to find it
+before the first request works, which is a worse first five minutes and no more secure once
+they have written it down. Setting `SCHEMAGATE_API_KEYS` turns authentication on for every
+`/v1` endpoint at once. `/health` stays open so a load balancer probe still works. Several
+keys are accepted at once, for rotation. A presented key is compared against every configured
+key with `hmac.compare_digest`, and the loop does not stop at the first match, so neither the
+time taken nor the response distinguishes a near miss from a wrong key.
+
+The rate limit is a fixed window per caller, counted in memory, per key when keys are set and
+per client address when they are not. Not a token bucket and not shared between processes: it
+defends the model budget against one caller's mistake, and a count in the process doing the
+spending is enough for that. Four workers allow four times the limit.
+
+Concurrency is bounded separately. Each document in flight holds its upload, its rendered
+pages and its answer in memory at once, and OCR is CPU bound. The gate is built on the first
+request rather than at startup, since an anyio semaphore belongs to a running event loop and
+the application is built before there is one. The thread pool is raised to match, so neither
+limit queues behind the other.
+
+## Evaluation
+
+`schemagate evaluate` scores a provider on documents whose correct reading is written down,
+reporting accuracy, latency and cost in one pass. Cases live in `evals/cases` and carry their
+own table definition, so a run needs no database.
+
+The three numbers appear together because the question is which model is cheap enough and
+still correct, which neither accuracy nor cost answers alone.
+
+Scored per cell rather than per row. A model that misreads one date out of eight columns and
+one that invents the entire row are not the same failure, and a per-row score reports them
+identically. Rows are matched positionally: a document lists its rows in an order, and pairing
+by best fit would hide a model that returned the right values against the wrong rows.
+
+A case may declare `expected_flags`. The European fixture carries a total that does not add
+up, and the gate catching it is that case passing. Scoring it as a miss would reward a model
+that corrected the document instead of copying it.
+
+Earlier versions of this document quoted measured numbers with no way to reproduce them. The
+harness is that way.
+
+## Packaging
+
+There are two ways to use this: `process` as a library, and the endpoints as a service. The
+package now names both. It previously exported a version string alone, so library use meant a
+deep import into modules that are free to move.
+
+The core is the schema compiler, the validation gate and the tabular path. Everything with a
+heavyweight dependency is an extra, and the imports behind them are lazy to match, so a
+deployment reading spreadsheets into Postgres does not install three model SDKs and an imaging
+library. A missing one raises `MissingDependencyError` naming the extra to install, rather
+than an ImportError naming a package the operator never chose. One CI job installs the core
+alone and extracts a CSV with it, which is what keeps the split accurate.
+
+`install(app, ...)` embeds the endpoints in an existing application. `app.mount` is the
+obvious alternative and does not work: Starlette does not run a mounted application's
+lifespan, so the pool is never built and every request fails on a state attribute that is
+still None. `install` includes the router and sets the state directly, and the pool is built
+on first use, so a host that never wires a lifespan still works. `shutdown` closes only a pool
+this package built; one handed in belongs to the caller.
 
 ## Deployment
 
@@ -549,8 +678,25 @@ the smallest implementation that passes it.
 9. **Done.** Image input, normalised then read by a vision model. Measured research settled
    the routing: vision beats traditional OCR by ten to fifteen points on degraded input,
    which is exactly what a photograph is, while OCR wins on clean fixed layouts.
-10. Optional commit to the database, off by default.
-11. Other databases. MySQL exposes column comments and enum members through
+10. **Done.** Cost accounting. Every response says what it spent, per model and in total,
+    and the log line an operator already reads carries it too. Prices are configuration, so an
+    unpriced model reports tokens and a null cost rather than an invented figure. Along with
+    it, the two levers that were never pulled: low effort by default, and a separate cheap
+    model for matching headings.
+11. **Done.** A package rather than a repository. Split extras with lazy imports, a public
+    surface on `schemagate`, `install(app, ...)` for embedding, a `schemagate` command, and
+    trusted publishing to PyPI on a tag. A CI job installs the core alone and extracts a CSV,
+    which is what keeps the split honest.
+12. **Done.** Access control and back-pressure. API keys, a per-caller rate limit, and a bound
+    on documents in flight. Plus `schemagate evaluate`, which scores accuracy, latency and
+    cost together on documents with known answers, so a model choice is measured rather than
+    remembered.
+13. Optional commit to the database, off by default.
+14. Batch extraction. Half price at the provider for work that can wait, which needs an
+    asynchronous job surface: submit, poll, collect. The right shape for bulk ingestion and
+    the wrong shape for the synchronous endpoint, so it is a second endpoint rather than a
+    flag on this one.
+15. Other databases. MySQL exposes column comments and enum members through
     `information_schema`, so it is genuinely viable; SQLite has neither but works for basic
     types. Both need the catalog read to become an interface rather than one query.
 
@@ -576,3 +722,10 @@ learning it after five.
 - Environment variables only, no dotenv in the settings object. Compose reads `env_file`
   natively and `uv run --env-file` covers local development, so reading `.env` inside
   `Settings` would buy nothing and make tests non-hermetic.
+- Tokens are always reported, money only when a price is configured. A price guessed at here
+  would be acted on and never checked.
+- Endpoints are open unless keys are configured.
+- Truncation is its own error rather than a parse failure. Every provider signals it as an
+  ordinary successful response whose JSON stops mid-row.
+- The extractor protocol returns the value and its cost together, so an adapter cannot report
+  one without the other.

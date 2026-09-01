@@ -46,9 +46,27 @@ source.
 test enforces it, so the service works inside a private network and cannot leak a request to a
 third party.
 
+**API keys are optional and cover every `/v1` endpoint at once.** Setting
+`SCHEMAGATE_API_KEYS` requires `Authorization: Bearer` or `X-API-Key` on all of them.
+`/health` stays open so a load balancer probe still works. A presented key is compared against
+every configured key with `hmac.compare_digest`, and the loop does not stop at the first
+match, so neither the time taken nor the response distinguishes a near miss from a wrong key.
+An error body names neither the key presented nor how many are configured.
+
+**A rate limit and a concurrency bound are available.** The first caps requests per caller per
+minute; the second caps documents in flight, each of which holds its upload and its rendered
+pages in memory. Both count within one process and are not distributed limiters.
+
+**Every document reports what it cost.** The per-request `usage` block and the log line carry
+tokens and, where a price is configured, money, so unusual spend is visible without reading a
+provider dashboard.
+
 ## What it does not do
 
 - It never writes to your database. Inserting is the caller's decision.
 - It does not persist uploads. A file lives in memory for the life of the request.
-- It has no authentication of its own. Put it behind whatever your other internal services use.
-  It is designed to run inside a private network, not on the public internet.
+- Authentication is off unless you configure keys. Keys are a bearer credential and nothing
+  more: no scopes, no expiry, no per-key permissions. It is designed to run inside a private
+  network, behind whatever your other internal services use, not on the public internet.
+- The rate limit counts within one process. Four workers allow four times the configured
+  limit. Use a gateway if that matters.
