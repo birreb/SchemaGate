@@ -1,6 +1,12 @@
 # SchemaGate architecture
 
-Status: design. Nothing implemented yet.
+Status: milestones 0 to 3 built. Discovery, model compilation, the tabular fast path, the
+native PDF path and upload routing all work and are under test. Extraction and the validation
+gate are next, so nothing calls a model yet. See [Milestones](#milestones) for detail.
+
+Decisions in this document are recorded with the reason behind them, including the ones that
+were revised after measurement. Where a note says a field or library behaves in a particular
+way, that behaviour was tested rather than assumed.
 
 SchemaGate turns a file into rows that fit a Postgres table you already own. It reads the
 table definition from the live database, builds a validation model from it at runtime, and
