@@ -292,11 +292,33 @@ separator as a decimal point is wrong by a factor of a thousand, on exactly the 
 care about most. The rule:
 
 - Both separators present: the last one is the decimal point. This settles `1.234,56` and
-  `1,234.56` without guessing.
+  `1,234.56` outright.
 - A separator that repeats can only be grouping, so `1.234.567` is unambiguous.
-- A single separator followed by exactly three digits is genuinely ambiguous. `1,234` is
-  either one thousand two hundred and thirty four or one point two three four, and nothing in
-  the string decides it. These are refused and reported rather than guessed.
+- A single separator followed by exactly three digits cannot be decided from the string.
+  `1,234` is either one thousand two hundred and thirty four or one point two three four.
+
+For that last case the string is out of evidence, so two other authorities are consulted in
+order. This is the same move that makes column comments valuable: SchemaGate knows things
+about the destination that a general-purpose parser does not.
+
+**First, the column.** A `numeric(12,2)` column holds two decimal places, so three digits
+after the separator cannot be a fraction and the separator must be grouping. Certain, not
+inferred. An integer column settles it the same way, with scale zero. Money columns are almost
+always `numeric(p,2)`, so this resolves the overwhelming majority of real cases, and it
+outranks everything below it.
+
+**Then, the rest of the file.** A scale of three or more, or a bare `numeric` with no declared
+scale, leaves the column unable to decide. So every value in that column is read first: if any
+of them is unambiguous, it reveals the file's convention, and that convention resolves the
+rest. `10,50` elsewhere in the column proves the comma is this file's decimal point.
+Contradictory evidence, one row saying `10,50` and another `9,876.50`, proves nothing and is
+treated as no evidence at all.
+
+**Only then, refusal.** What survives both is genuinely undecidable, and the report says so
+and names the fix: declaring the column with a scale would resolve it.
+
+The scale is read from `atttypmod` in the same catalog query as everything else, which costs
+nothing extra.
 
 Integer columns take digits only. An exponent arriving at this point means the source already
 lost the exact value, which is precisely the case the spreadsheet reader leaves in float form

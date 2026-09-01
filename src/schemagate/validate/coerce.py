@@ -36,6 +36,8 @@ def coerce_rows(
     come back. The caller decides whether a single bad line is worth rejecting
     the whole document.
     """
+    conventions = _conventions(rows, schema)
+
     coerced: list[dict[str, Any]] = []
     failures: list[Failure] = []
 
@@ -43,7 +45,7 @@ def coerce_rows(
         values: dict[str, Any] = {}
         for column in schema.extractable:
             text = row.get(column.name)
-            value, failure = _coerce_cell(text, column, index)
+            value, failure = _coerce_cell(text, column, index, conventions.get(column.name))
             values[column.name] = value
             if failure is not None:
                 failures.append(failure)
@@ -52,7 +54,30 @@ def coerce_rows(
     return tuple(coerced), tuple(failures)
 
 
-def _coerce_cell(text: str | None, column: ColumnSpec, row: int) -> tuple[Any, Failure | None]:
+def _conventions(
+    rows: Sequence[Mapping[str, str | None]], schema: TableSchema
+) -> dict[str, str | None]:
+    """Read each numeric column once to see which separator the file uses.
+
+    Done before any conversion, because a value that is ambiguous on its own may
+    be settled by a value further down the same column.
+    """
+    numeric = [
+        column
+        for column in schema.extractable
+        if column.data_type in EXACT_TYPES | FLOAT_TYPES | INTEGER_TYPES
+    ]
+    return {
+        column.name: _convention(
+            [_strip(value)[0] for row in rows if isinstance(value := row.get(column.name), str)]
+        )
+        for column in numeric
+    }
+
+
+def _coerce_cell(
+    text: str | None, column: ColumnSpec, row: int, convention: str | None = None
+) -> tuple[Any, Failure | None]:
     if text is None:
         if column.nullable:
             return None, None
@@ -64,15 +89,17 @@ def _coerce_cell(text: str | None, column: ColumnSpec, row: int) -> tuple[Any, F
         )
 
     try:
-        return _convert(text, column), None
+        return _convert(text, column, convention), None
     except _AmbiguousNumberError:
         return None, Failure(
             row=row,
             column=column.name,
             rule="ambiguous_number",
             detail=(
-                f"{text!r} could be a thousands separator or a decimal point. "
-                f"A wrong reading is out by a factor of a thousand, so it is refused."
+                f"{text!r} could be a thousands separator or a decimal point, and a wrong "
+                f"reading is out by a factor of a thousand. Column {column.name!r} declares "
+                f"no scale that settles it and no other value in this column does either. "
+                f"Declaring the column as numeric(p,s) would resolve it."
             ),
             value=text,
         )
@@ -94,7 +121,7 @@ class _NotALabelError(ValueError):
     """A value that is not one of the enum's labels."""
 
 
-def _convert(text: str, column: ColumnSpec) -> Any:
+def _convert(text: str, column: ColumnSpec, convention: str | None = None) -> Any:
     if column.enum_labels:
         if text not in column.enum_labels:
             allowed = ", ".join(repr(label) for label in column.enum_labels)
@@ -108,19 +135,22 @@ def _convert(text: str, column: ColumnSpec) -> Any:
             nullable=False,
             ordinal=column.ordinal,
             enum_labels=column.enum_labels,
+            numeric_scale=column.numeric_scale,
         )
-        return [_convert(item.strip(), element) for item in _split_array(text)]
+        return [_convert(item.strip(), element, convention) for item in _split_array(text)]
 
-    return _convert_scalar(text, column.data_type)
+    return _convert_scalar(text, column.data_type, column.numeric_scale, convention)
 
 
-def _convert_scalar(text: str, data_type: str) -> Any:
+def _convert_scalar(
+    text: str, data_type: str, scale: int | None = None, convention: str | None = None
+) -> Any:
     if data_type in EXACT_TYPES:
-        return _to_decimal(text)
+        return _to_decimal(text, scale, convention)
     if data_type in INTEGER_TYPES:
-        return _to_int(text)
+        return _to_int(text, scale, convention)
     if data_type in FLOAT_TYPES:
-        return float(_normalise(_strip(text)[0]))
+        return float(_normalise(_strip(text)[0], scale, convention))
     if data_type == "bool":
         return _to_bool(text)
     if data_type == "date":
@@ -141,18 +171,18 @@ def _split_array(text: str) -> list[str]:
     return [item for item in inner.split(",") if item.strip()]
 
 
-def _to_decimal(text: str) -> Decimal:
+def _to_decimal(text: str, scale: int | None = None, convention: str | None = None) -> Decimal:
     body, negative = _strip(text)
     try:
-        value = Decimal(_normalise(body))
+        value = Decimal(_normalise(body, scale, convention))
     except InvalidOperation as error:
         raise ValueError("not a number") from error
     return -value if negative else value
 
 
-def _to_int(text: str) -> int:
+def _to_int(text: str, scale: int | None = None, convention: str | None = None) -> int:
     body, negative = _strip(text)
-    digits = _normalise(body)
+    digits = _normalise(body, scale, convention)
     if not digits.isdigit():
         raise ValueError(
             "an integer column takes digits only, so a fraction or an exponent "
@@ -198,13 +228,14 @@ def _strip(text: str) -> tuple[str, bool]:
     return body, negative
 
 
-def _normalise(body: str) -> str:
+def _normalise(body: str, scale: int | None = None, convention: str | None = None) -> str:
     """Resolve grouping and decimal separators into a plain decimal string.
 
     With both separators present the last one is the decimal point, which
-    settles the common European and Anglo formats without guessing. A separator
-    that repeats can only be grouping. What is left is a single separator, and
-    if exactly three digits follow it the string is genuinely ambiguous.
+    settles the common European and Anglo formats outright. A separator that
+    repeats can only be grouping. What is left is a single separator followed by
+    exactly three digits, which the string alone cannot decide, and which two
+    other sources of truth are consulted for in turn.
     """
     dots = body.count(".")
     commas = body.count(",")
@@ -222,6 +253,52 @@ def _normalise(body: str) -> str:
         return body.replace(separator, "")
 
     head, _, tail = body.partition(separator)
+    if len(tail) != GROUP_SIZE or not tail.isdigit():
+        return f"{head}.{tail}"
+
+    # First authority: the column. A column that holds fewer than three decimal
+    # places cannot be holding three here, so the separator groups thousands.
+    if scale is not None and scale < GROUP_SIZE:
+        return head + tail
+
+    # Second authority: the rest of the file, which may have written an
+    # unambiguous value elsewhere in this same column.
+    if convention is not None:
+        return f"{head}.{tail}" if convention == separator else head + tail
+
+    raise _AmbiguousNumberError(body)
+
+
+def _evidence(body: str) -> str | None:
+    """Which separator this value proves is the decimal point, if any."""
+    dots = body.count(".")
+    commas = body.count(",")
+
+    if dots and commas:
+        return "." if body.rfind(".") > body.rfind(",") else ","
+
+    separator = "." if dots else ("," if commas else "")
+    if not separator:
+        return None
+
+    if (dots or commas) > 1:
+        # Repeated, so this separator groups thousands and the other one is
+        # left as the only candidate for the decimal point.
+        return "," if separator == "." else "."
+
+    head, _, tail = body.partition(separator)
+    del head
     if len(tail) == GROUP_SIZE and tail.isdigit():
-        raise _AmbiguousNumberError(body)
-    return f"{head}.{tail}"
+        return None
+    return separator
+
+
+def _convention(values: Sequence[str]) -> str | None:
+    """The decimal separator this column uses, when the column agrees with itself.
+
+    Contradictory evidence returns None. A file that writes both 10,50 and
+    9,876.50 in one column has not established a convention, and picking one
+    would be the guess this whole path exists to avoid.
+    """
+    proven = {found for value in values if (found := _evidence(value))}
+    return proven.pop() if len(proven) == 1 else None

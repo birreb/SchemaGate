@@ -29,6 +29,14 @@ SELECT
         WHEN t.typname IN ('varchar', 'bpchar') AND a.atttypmod > 0
         THEN a.atttypmod - 4
     END                                          AS max_length,
+    -- Decimal places the column accepts. Integers hold none, and numeric(p,s)
+    -- encodes s in the low half of atttypmod, the same way information_schema
+    -- computes it. A bare `numeric` declares no scale and reports null.
+    CASE
+        WHEN t.typname IN ('int2', 'int4', 'int8') THEN 0
+        WHEN t.typname IN ('numeric', 'decimal') AND a.atttypmod <> -1
+        THEN (a.atttypmod - 4) & 65535
+    END                                          AS numeric_scale,
     a.atthasdef                                  AS has_default,
     a.attgenerated <> ''                         AS is_generated,
     a.attidentity <> ''                          AS is_identity
@@ -94,6 +102,7 @@ def to_column_spec(record: Row) -> ColumnSpec:
         description=record["description"],
         enum_labels=tuple(record["enum_labels"] or ()),
         max_length=record["max_length"],
+        numeric_scale=record["numeric_scale"],
         has_default=record["has_default"],
         is_generated=record["is_generated"],
         is_identity=record["is_identity"],

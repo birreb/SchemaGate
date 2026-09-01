@@ -12,6 +12,7 @@ def record(**overrides: Any) -> dict[str, Any]:
         "description": None,
         "enum_labels": None,
         "max_length": None,
+        "numeric_scale": None,
         "has_default": False,
         "is_generated": False,
         "is_identity": False,

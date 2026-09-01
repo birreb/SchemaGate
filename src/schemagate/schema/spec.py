@@ -14,6 +14,10 @@ class ColumnSpec:
     description: str | None = None
     enum_labels: tuple[str, ...] = ()
     max_length: int | None = None
+    # Decimal places the column accepts. 0 for integers, s for numeric(p,s), and
+    # None where the type declares no scale. Used to resolve numbers whose
+    # separator could be grouping or decimal.
+    numeric_scale: int | None = None
     has_default: bool = False
     is_generated: bool = False
     is_identity: bool = False

@@ -184,3 +184,89 @@ def test_arrays() -> None:
     spec = column("tags", "_text")
 
     assert coerce_one("a,b,c", spec) == ["a", "b", "c"]
+
+
+# The three-step cascade for a separator followed by exactly three digits:
+# the column's declared scale, then the convention the rest of the file reveals,
+# then refusal.
+
+
+def test_a_money_column_settles_the_ambiguity_from_its_scale() -> None:
+    spec = column(data_type="numeric", numeric_scale=2)
+
+    assert coerce_one("1,234", spec) == Decimal("1234"), (
+        "numeric(p,2) holds two decimals, so three digits after the separator "
+        "cannot be a fraction and the separator must be grouping"
+    )
+
+
+def test_a_scale_of_zero_settles_it_too() -> None:
+    assert coerce_one("1.234", column(data_type="numeric", numeric_scale=0)) == Decimal("1234")
+
+
+def test_an_integer_column_settles_it() -> None:
+    assert coerce_one("1,234", column(data_type="int8", numeric_scale=0)) == 1234
+
+
+def test_a_scale_that_allows_three_decimals_does_not_settle_it() -> None:
+    spec = column(data_type="numeric", numeric_scale=3)
+
+    assert failure_for("1,234", spec).rule == "ambiguous_number", (
+        "numeric(p,3) permits three decimals, so the value really could be either"
+    )
+
+
+def test_the_rest_of_the_file_settles_what_the_scale_cannot() -> None:
+    spec = column("total", "numeric", numeric_scale=3)
+    rows = ({"total": "10,50"}, {"total": "1,234"})
+
+    coerced, failures = coerce_rows(rows, schema(spec))
+
+    assert not failures
+    assert coerced[1]["total"] == Decimal("1.234"), (
+        "10,50 proves the comma is this file's decimal separator"
+    )
+
+
+def test_the_file_can_prove_the_comma_is_grouping() -> None:
+    spec = column("total", "numeric", numeric_scale=3)
+    rows = ({"total": "9,876.50"}, {"total": "1,234"})
+
+    coerced, failures = coerce_rows(rows, schema(spec))
+
+    assert not failures
+    assert coerced[1]["total"] == Decimal("1234")
+
+
+def test_the_scale_outranks_the_rest_of_the_file() -> None:
+    spec = column("total", "numeric", numeric_scale=2)
+    rows = ({"total": "10,50"}, {"total": "1,234"})
+
+    coerced, failures = coerce_rows(rows, schema(spec))
+
+    assert not failures
+    assert coerced[1]["total"] == Decimal("1234"), (
+        "the column is the stronger authority: two decimals cannot hold three digits"
+    )
+
+
+def test_a_file_that_contradicts_itself_is_refused() -> None:
+    spec = column("total", "numeric", numeric_scale=3)
+    rows = ({"total": "10,50"}, {"total": "9,876.50"}, {"total": "1,234"})
+
+    _, failures = coerce_rows(rows, schema(spec))
+
+    assert [f.rule for f in failures] == ["ambiguous_number"], (
+        "one row says comma decimal and another says comma grouping, "
+        "so the file is not evidence of anything"
+    )
+
+
+def test_with_no_scale_and_no_other_clue_it_still_refuses() -> None:
+    assert failure_for("1,234", column(data_type="numeric")).rule == "ambiguous_number"
+
+
+def test_the_refusal_explains_what_would_resolve_it() -> None:
+    detail = failure_for("1,234", column(data_type="numeric")).detail
+
+    assert "scale" in detail.lower(), "the message should point at the fix"

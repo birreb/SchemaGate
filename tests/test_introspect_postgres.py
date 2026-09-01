@@ -136,3 +136,19 @@ async def test_a_view_is_introspectable_like_a_table(
     schema = await introspect(connection, SCHEMA, "recent")
 
     assert [c.name for c in schema.ordered] == ["invoice_number", "total"]
+
+
+async def test_reads_the_declared_decimal_scale(invoices: TableSchema) -> None:
+    assert column(invoices, "subtotal").numeric_scale == 2, (
+        "numeric(12,2) encodes its scale in atttypmod, and that scale is what "
+        "resolves a value like 1,234 without guessing"
+    )
+
+
+async def test_integer_columns_report_a_scale_of_zero(invoices: TableSchema) -> None:
+    assert column(invoices, "id").numeric_scale == 0
+
+
+async def test_non_numeric_columns_report_no_scale(invoices: TableSchema) -> None:
+    assert column(invoices, "invoice_number").numeric_scale is None
+    assert column(invoices, "issued_on").numeric_scale is None
