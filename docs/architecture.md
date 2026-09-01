@@ -155,11 +155,23 @@ Routing signals:
 
 - Tabular files are parsed directly. No model call, no cost. Matching headers against the
   schema is a string problem.
-- `pdf_inspector.process_pdf` classifies in tens of milliseconds and returns markdown for the
-  text-based case. Its `pdf_type` (`text_based`, `scanned`, `image_based`, `mixed`) is the
-  routing signal and `pages_needing_ocr` says which pages fall through.
+- `pdf_inspector.process_pdf` classifies in single-digit milliseconds and returns markdown for
+  the text-based case. `pdf_type` (`text_based`, `scanned`, `image_based`, `mixed`) is the
+  routing signal.
 - `has_encoding_issues` on an otherwise text-based PDF forces the OCR path. Broken CID maps
   produce text that looks fine and is wrong, which is worse than no text at all.
+- An empty text layer forces the OCR path, since `markdown` comes back as `None` for anything
+  the native reader could not read.
+
+**`pages_needing_ocr` is not the signal it appears to be.** Measured against a readable
+three-page document, the parser listed all three pages while also returning clean markdown and
+classifying the file as `text_based`. The field marks a page as sparse, not as failed. Routing
+on it would send documents that already parsed perfectly to a paid vision model, which is the
+single most expensive mistake available in this pipeline. It is carried through the result for
+diagnostics and is deliberately not part of the decision.
+
+Worth noting for the same reason: a blank page classifies as `scanned` with 0.9 confidence.
+Confidence is not a usable gate either.
 
 **Local OCR before vision.** `process_pdf_with_ocr` routes only the pages native extraction
 rejected, and returns per-page provenance (`native`, `ocr`, `fused`). The wheel deliberately
@@ -414,10 +426,10 @@ the smallest implementation that passes it.
 
 0. **Done.** Repository skeleton: packaging, configuration, lint, types, CI, an app that starts
    and answers `/health`.
-1. Introspection and the model factory. Tested against a Postgres container with a table
+1. **Done, pending CI.** Introspection and the model factory. Tested against a Postgres container with a table
    covering every type in the mapping above, enum labels, and column comments.
-2. Tabular fast path. CSV and spreadsheets to validated rows with no model call.
-3. Native PDF path. `pdf-inspector` behind the protocol, thread-offloaded, markdown out.
+2. **Done.** Tabular fast path. CSV and spreadsheets to rows keyed by column, no model call.
+3. **Done.** Native PDF path, thread-offloaded, plus content-based upload routing.
 4. Validation gate. Coercion, database constraints, configurable arithmetic rules. Pure logic,
    no model, so it is fully testable on its own.
 5. First real extractor, Ollama. Container model, schema-constrained generation, and the
