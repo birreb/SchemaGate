@@ -1,6 +1,7 @@
 import csv
 import datetime as dt
 import io
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +9,7 @@ from charset_normalizer import from_bytes
 from python_calamine import CalamineError, CalamineWorkbook
 
 from schemagate.errors import MalformedDocumentError
+from schemagate.schema.spec import TableSchema
 
 # Restricted on purpose. Left to guess freely, the sniffer will happily decide
 # that a column of dates is colon-delimited.
@@ -22,6 +24,65 @@ class Table:
 
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Alignment:
+    """A table's rows keyed by column name, and what did not line up.
+
+    Both mismatch lists are reported rather than raised. A file with a spare
+    column is still usable, and a caller can decide whether a missing column
+    matters more than the rows that did parse.
+    """
+
+    rows: tuple[dict[str, str | None], ...]
+    unmatched_headers: tuple[str, ...] = ()
+    missing_columns: tuple[str, ...] = ()
+
+
+def align(table: Table, schema: TableSchema) -> Alignment:
+    """Key each row by column name, matching headers loosely.
+
+    A header is matched by comparing it to the column name with case, spacing
+    and punctuation removed, so `Invoice Number` and `invoice-number` both find
+    `invoice_number`. Columns the database owns are never matched, because a
+    file cannot supply an identity value.
+    """
+    columns = {_normalize(column.name): column.name for column in schema.extractable}
+
+    positions: dict[str, int] = {}
+    unmatched: list[str] = []
+    for index, header in enumerate(table.headers):
+        column = columns.get(_normalize(header))
+        if column is None:
+            unmatched.append(header)
+        elif column in positions:
+            raise MalformedDocumentError(
+                f"Headers {table.headers[positions[column]]!r} and {header!r} both match "
+                f"column {column!r}. Rename one of them."
+            )
+        else:
+            positions[column] = index
+
+    rows = tuple(
+        {column: _cell(row[index]) for column, index in positions.items()} for row in table.rows
+    )
+    missing = tuple(name for name in columns.values() if name not in positions)
+    return Alignment(rows=rows, unmatched_headers=tuple(unmatched), missing_columns=missing)
+
+
+def _cell(value: str) -> str | None:
+    """An empty cell means no value, which is null rather than an empty string.
+
+    Left as `""` it would satisfy a NOT NULL text column and quietly write a
+    blank where the file said nothing at all.
+    """
+    stripped = value.strip()
+    return stripped or None
+
+
+def _normalize(name: str) -> str:
+    return re.sub(r"[^0-9a-z]+", "_", name.strip().casefold()).strip("_")
 
 
 def read_csv(data: bytes) -> Table:
