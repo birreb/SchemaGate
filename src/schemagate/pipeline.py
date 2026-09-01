@@ -9,6 +9,7 @@ import anyio.to_thread
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import Extractor, compose
+from schemagate.ingest.images import NormalisedImage, normalise
 from schemagate.ingest.pdf import read_pdf_async
 from schemagate.ingest.router import FileKind, detect_kind
 from schemagate.ingest.tabular import Table, align, read_csv, read_spreadsheet
@@ -105,9 +106,14 @@ async def _read(
         rows = await _ask(extractor, parsed.markdown, schema, instructions)
         return route, rows, ((), ())
 
-    raise UnsupportedFileTypeError(
-        f"{kind.value} uploads need the vision route, which is not built yet."
-    )
+    if kind is FileKind.IMAGE:
+        # Normalised off the event loop: decoding and resampling a photograph is
+        # the same kind of CPU-bound work as parsing a PDF.
+        image = await anyio.to_thread.run_sync(normalise, data)
+        rows = await _ask(extractor, "", schema, instructions, (image,))
+        return Route.VISION, rows, ((), ())
+
+    raise UnsupportedFileTypeError(f"{kind.value} uploads are not supported.")
 
 
 async def _read_table(data: bytes, kind: FileKind) -> Table:
@@ -125,17 +131,18 @@ async def _ask(
     document: str,
     schema: TableSchema,
     instructions: str | None = None,
+    images: Sequence[NormalisedImage] = (),
 ) -> tuple[dict[str, str | None], ...]:
     if extractor is None:
         # Not the caller's mistake. The file type is supported and they could
         # not have known the server has no model behind it.
         raise ExtractorNotConfiguredError(
-            "This document needs a model to read it, and no model server is "
-            "configured. Set SCHEMAGATE_PROVIDER."
+            "This document needs a model to read it, and no model is configured. "
+            "Set SCHEMAGATE_PROVIDER."
         )
 
     container = build_container_model(schema)
-    answer = await extractor.extract(compose(document, instructions), container)
+    answer = await extractor.extract(compose(document, instructions), container, images)
     rows: list[dict[str, str | None]] = answer.model_dump()["rows"]
     return tuple(rows)
 

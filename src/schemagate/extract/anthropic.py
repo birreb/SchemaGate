@@ -1,7 +1,9 @@
+from collections.abc import Sequence
 from typing import Any, Protocol, cast
 
 from schemagate.errors import ExtractionError
-from schemagate.extract.base import SYSTEM_PROMPT, ModelT
+from schemagate.extract.base import SYSTEM_PROMPT, ModelT, encoded
+from schemagate.ingest.images import NormalisedImage
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -43,7 +45,12 @@ class AnthropicExtractor:
         self._client = client
         self._model = model
 
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+    async def extract(
+        self,
+        document: str,
+        model: type[ModelT],
+        images: Sequence[NormalisedImage] = (),
+    ) -> ModelT:
         try:
             response = await self._client.messages.parse(
                 model=self._model,
@@ -52,7 +59,7 @@ class AnthropicExtractor:
                 # both where they belong and what lets the prefix cache across
                 # requests, since only the document below it changes.
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": document}],
+                messages=[{"role": "user", "content": _content(document, images)}],
                 output_format=model,
             )
         except Exception as error:
@@ -75,3 +82,25 @@ class AnthropicExtractor:
         # The SDK returns an instance of the model it was given, but says so
         # only through an untyped attribute.
         return cast(ModelT, parsed)
+
+
+def _content(document: str, images: Sequence[NormalisedImage]) -> Any:
+    """The user message, as a string when there is nothing but text.
+
+    Images come first so the instruction below reads as being about them.
+    """
+    if not images:
+        return document
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.media_type,
+                "data": encoded(image),
+            },
+        }
+        for image in images
+    ]
+    blocks.append({"type": "text", "text": document})
+    return blocks

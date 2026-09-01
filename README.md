@@ -152,13 +152,28 @@ the problem entirely by being one variable each.
 | XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | no |
 | PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | yes |
 | Scanned PDF | local OCR, with the `ocr` extra | yes |
-| Images | not yet | not yet |
+| Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then read by a vision model | yes |
 
 Uploads are identified by content, not by filename or the declared content type. A PDF named
 `statement.csv` is treated as a PDF.
 
 Tabular files never reach a model, so they cost nothing to process. `timings_ms` in every
 response shows where the time actually went.
+
+## Photographs
+
+An uploaded image is normalised before it is sent, which fixes three things that fail silently:
+
+- **Orientation.** A phone writes the rotation into EXIF and leaves the pixels sideways. Every
+  viewer shows it upright; a model reads the pixels. The image is rotated and the tag cleared,
+  so nothing rotates it twice.
+- **Transparency.** A transparent PNG flattened carelessly turns white text black. It is
+  composed onto white instead.
+- **Size.** A 12 megapixel photo is billed in full and then downscaled by the provider anyway,
+  so it is scaled to 1568 pixels on the long edge here, where the decision is visible.
+
+HEIC is the iPhone default and needs `pillow-heif`, which is installed as standard. Without it
+every other format still works and a HEIC upload is refused with a readable message.
 
 ## Column comments become extraction hints
 
@@ -226,8 +241,10 @@ Worth knowing before you evaluate it.
   column comments, which no portable interface exposes.
 - **No writes.** SchemaGate returns JSON. Inserting is yours to do, deliberately, because a
   service that writes to your production database is a much larger thing to trust.
-- **Photographs are not supported yet.** A scanned PDF is read by local OCR when the `ocr`
-  extra is installed; a loose image file is still refused rather than guessed at.
+- **A photograph is read by a vision model, so it needs a provider.** Local OCR covers
+  scanned PDFs offline, but a photograph is degraded input, where vision models beat
+  traditional OCR by a wide margin. With no provider configured, an image is refused rather
+  than read badly.
 - **`json` and `jsonb` are carried as JSON strings.** Strict structured output cannot
   describe an object of unknown shape, so the model writes JSON into a string and it is
   parsed and checked here. A bare scalar is refused: Postgres would store it, and it is

@@ -1,9 +1,11 @@
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 from pydantic import ValidationError
 
 from schemagate.errors import ExtractionError
 from schemagate.extract.base import SYSTEM_PROMPT, ModelT
+from schemagate.ingest.images import NormalisedImage
 
 DEFAULT_MODEL = "qwen3"
 
@@ -49,11 +51,20 @@ class OllamaExtractor:
         self._client = client
         self._model = model
 
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+    async def extract(
+        self,
+        document: str,
+        model: type[ModelT],
+        images: Sequence[NormalisedImage] = (),
+    ) -> ModelT:
         schema = model.model_json_schema()
+        # Ollama takes raw bytes on the message rather than a content block.
+        user: dict[str, Any] = {"role": "user", "content": document}
+        if images:
+            user["images"] = [image.data for image in images]
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": document},
+            user,
         ]
 
         # Broad on purpose, and narrow in scope: this call is the boundary to

@@ -1,4 +1,5 @@
 import io
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -8,6 +9,7 @@ from openpyxl import Workbook
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import ModelT
+from schemagate.ingest.images import NormalisedImage
 from schemagate.pipeline import Route, process
 from schemagate.schema.spec import ColumnSpec, TableSchema
 from schemagate.validate.rules import SumRule
@@ -42,7 +44,9 @@ class StubExtractor:
         )
         self.documents: list[str] = []
 
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+    async def extract(
+        self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
+    ) -> ModelT:
         self.documents.append(document)
         return model.model_validate({"rows": self.rows})
 
@@ -165,3 +169,35 @@ async def test_the_table_is_named_in_the_result() -> None:
     result = await process(CSV, "invoices.csv", INVOICES, extractor=None)
 
     assert result.table == "public.invoices"
+
+
+def photograph() -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (900, 600), "white").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+async def test_an_image_goes_to_the_model_as_an_image() -> None:
+    seen: list[Any] = []
+
+    class Watcher:
+        async def extract(self, document: str, model: Any, images: Any = ()) -> Any:
+            seen.append(images)
+            return model.model_validate(
+                {"rows": [{"invoice_number": "INV-9", "subtotal": "1", "tax": "1", "total": "2"}]}
+            )
+
+    result = await process(photograph(), "invoice.jpg", INVOICES, extractor=Watcher())
+
+    assert result.route is Route.VISION
+    assert len(seen[0]) == 1, "the photograph is what the model reads, not a transcription"
+    assert seen[0][0].media_type == "image/jpeg"
+
+
+async def test_an_image_with_no_model_is_a_configuration_problem() -> None:
+    from schemagate.errors import ExtractorNotConfiguredError
+
+    with pytest.raises(ExtractorNotConfiguredError):
+        await process(photograph(), "invoice.jpg", INVOICES, extractor=None)

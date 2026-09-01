@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from schemagate.api.app import create_app
 from schemagate.config import Settings
 from schemagate.errors import ConfigurationError, TableNotFoundError
 from schemagate.extract.base import ModelT
+from schemagate.ingest.images import NormalisedImage
 from schemagate.schema.spec import ColumnSpec, TableRef, TableSchema
 
 DSN = "postgresql://user:password@localhost:5432/billing"
@@ -41,7 +43,9 @@ class FakeSchemas:
 
 
 class StubExtractor:
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+    async def extract(
+        self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
+    ) -> ModelT:
         return model.model_validate({"rows": []})
 
 
@@ -308,7 +312,9 @@ def test_instructions_reach_the_model_with_the_document() -> None:
     seen: list[str] = []
 
     class Recorder:
-        async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+        async def extract(
+            self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
+        ) -> ModelT:
             seen.append(document)
             return model.model_validate({"rows": []})
 

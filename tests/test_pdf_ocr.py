@@ -56,16 +56,23 @@ def test_ocr_is_reported_as_available_once_its_libraries_are_present() -> None:
 
 
 async def test_the_pipeline_reads_a_scanned_invoice_end_to_end() -> None:
+    from collections.abc import Sequence
     from typing import Any
 
     from schemagate.extract.base import ModelT
+    from schemagate.ingest.images import NormalisedImage
     from schemagate.pipeline import Route, process
     from schemagate.schema.spec import ColumnSpec, TableSchema
 
     seen: list[str] = []
 
     class Recorder:
-        async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+        async def extract(
+            self,
+            document: str,
+            model: type[ModelT],
+            images: Sequence[NormalisedImage] = (),
+        ) -> ModelT:
             seen.append(document)
             return model.model_validate(
                 {"rows": [{"invoice_number": "INV-2026-0147", "total": "11425.24"}]}

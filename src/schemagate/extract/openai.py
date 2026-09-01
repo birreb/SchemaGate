@@ -1,7 +1,9 @@
+from collections.abc import Sequence
 from typing import Any, Protocol, cast
 
 from schemagate.errors import ExtractionError
-from schemagate.extract.base import SYSTEM_PROMPT, ModelT
+from schemagate.extract.base import SYSTEM_PROMPT, ModelT, encoded
+from schemagate.ingest.images import NormalisedImage
 
 
 class Completions(Protocol):
@@ -36,7 +38,12 @@ class OpenAIExtractor:
         self._client = client
         self._model = model
 
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+    async def extract(
+        self,
+        document: str,
+        model: type[ModelT],
+        images: Sequence[NormalisedImage] = (),
+    ) -> ModelT:
         try:
             completion = await self._client.chat.completions.parse(
                 model=self._model,
@@ -44,7 +51,7 @@ class OpenAIExtractor:
                 # conversation instead. The protocol hides the difference.
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": document},
+                    {"role": "user", "content": _content(document, images)},
                 ],
                 response_format=model,
             )
@@ -66,3 +73,18 @@ class OpenAIExtractor:
         # The SDK returns an instance of the model it was given, but says so
         # only through an untyped attribute.
         return cast(ModelT, parsed)
+
+
+def _content(document: str, images: Sequence[NormalisedImage]) -> Any:
+    """The user message. OpenAI takes an image as a data URL in a content part."""
+    if not images:
+        return document
+    parts: list[dict[str, Any]] = [
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{image.media_type};base64,{encoded(image)}"},
+        }
+        for image in images
+    ]
+    parts.append({"type": "text", "text": document})
+    return parts

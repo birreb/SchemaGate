@@ -1,9 +1,10 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 8 built, and it runs. A document can be posted to the endpoint and
-come back as validated rows: CSV, spreadsheets, digital PDFs, and scanned PDFs through local
-OCR. Four model providers, a playground, and a container. What is left is image input and
-the optional commit path. See [Milestones](#milestones) for detail.
+Status: milestones 0 to 9 built, and it runs. A document can be posted to the endpoint and
+come back as validated rows: CSV, spreadsheets, digital PDFs, scanned PDFs through local OCR,
+and photographs through a vision model. Four model providers, a playground, and a container.
+What is left is the optional commit path and other databases. See
+[Milestones](#milestones) for detail.
 
 Decisions in this document are recorded with the reason behind them, including the ones that
 were revised after measurement. Where a note says a field or library behaves in a particular
@@ -145,7 +146,7 @@ for that type rather than a single generic one.
 | XLSX, XLS, XLSB, ODS   | `python-calamine`                   | Rust engine. Also reads legacy `.xls`, which `openpyxl` cannot.   |
 | PDF, digital           | `pdf-inspector`                     | Rust layout parser, markdown out.                                 |
 | PDF, scanned or mixed  | `pdf-inspector` selective OCR       | Local OCR before any network call. See below.                     |
-| Images                 | `pillow` + `pillow-heif`, then vision | Normalization, then the model.                                  |
+| Images                 | `pillow` + `pillow-heif`, then vision | EXIF rotation, flattening and downscaling, then the model.      |
 
 `openpyxl` is the obvious alternative for spreadsheets and is the wrong choice here: pure
 Python, last released mid-2024, and no support for `.xls` at all.
@@ -506,7 +507,9 @@ the smallest implementation that passes it.
 8. **Done.** Local OCR for scanned PDFs, behind an `ocr` extra. 822 ms on a scanned invoice
    with nothing leaving the machine, which is the point: the alternative was posting scans
    to a vision API, contradicting the reason to run this inside your own network.
-9. Image input, with normalization and vision as an opt-in fallback.
+9. **Done.** Image input, normalised then read by a vision model. Measured research settled
+   the routing: vision beats traditional OCR by ten to fifteen points on degraded input,
+   which is exactly what a photograph is, while OCR wins on clean fixed layouts.
 10. Optional commit to the database, off by default.
 11. Other databases. MySQL exposes column comments and enum members through
     `information_schema`, so it is genuinely viable; SQLite has neither but works for basic

@@ -13,6 +13,8 @@ dependencies = [
     "ollama>=0.6.2",
     "openai>=3.6.0",
     "pdf-inspector>=1.17.0",
+    "pillow>=12.3.0",
+    "pillow-heif>=1.6.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "python-calamine>=0.8.2",
@@ -75,6 +77,6 @@ files = ["src", "tests"]
 # is a test-only dependency used to draw fixture images, so not following it
 # costs nothing and stops the chain before numpy.
 [[tool.mypy.overrides]]
-module = ["PIL.*", "numpy.*", "onnxruntime.*", "pypdfium2_raw.*"]
+module = ["PIL.*", "numpy.*", "onnxruntime.*", "pypdfium2_raw.*", "pillow_heif.*"]
 ignore_missing_imports = true
 follow_imports = "skip"

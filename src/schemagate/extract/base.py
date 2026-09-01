@@ -1,6 +1,10 @@
+import base64
+from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
+
+from schemagate.ingest.images import NormalisedImage
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -30,7 +34,12 @@ class Extractor(Protocol):
     exists rather than branching on a provider name inside the pipeline.
     """
 
-    async def extract(self, document: str, model: type[ModelT]) -> ModelT: ...
+    async def extract(
+        self,
+        document: str,
+        model: type[ModelT],
+        images: Sequence[NormalisedImage] = (),
+    ) -> ModelT: ...
 
 
 def compose(document: str, instructions: str | None) -> str:
@@ -59,3 +68,8 @@ def _block(tag: str, body: str) -> str:
     closing = f"</{tag}>"
     defused = body.replace(closing, closing[1:])
     return f"<{tag}>\n{defused}\n{closing}"
+
+
+def encoded(image: NormalisedImage) -> str:
+    """Base64 for the providers that want a string rather than bytes."""
+    return base64.standard_b64encode(image.data).decode("ascii")
