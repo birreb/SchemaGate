@@ -136,6 +136,21 @@ for that type rather than a single generic one.
 `openpyxl` is the obvious alternative for spreadsheets and is the wrong choice here: pure
 Python, last released mid-2024, and no support for `.xls` at all.
 
+**What a spreadsheet can and cannot carry.** XLSX stores numbers as decimal text in XML, not
+as binary doubles, so an ordinary monetary value survives the round trip through the reader
+exactly. The limit is the writing application, not the format and not the reader: a value is
+converted to a float before it is saved, so anything past 2**53 arrives already rounded. A
+twenty-digit account number is in the file as `1.234567890123457e+19` and the missing digits
+are not recoverable by any reader, because they are not there. Switching libraries does not
+help; `xlsxr` and `pandas` with `dtype=object` return the stored text unconverted, which is
+the same rounded value.
+
+What SchemaGate controls is whether it makes the situation worse. Expanding such a float back
+to integer notation produces twenty digits that were never in the file, and hands the database
+a plausible, wrong identifier. So integer expansion stops at 2**53. Past that the value keeps
+its float form, fails integer coercion, and is reported. A rejected account number is
+recoverable; a silently fabricated one is not.
+
 Routing signals:
 
 - Tabular files are parsed directly. No model call, no cost. Matching headers against the

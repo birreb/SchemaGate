@@ -17,6 +17,10 @@ DELIMITERS = ",;\t|"
 
 SNIFF_BYTES = 8192
 
+# Above 2**53 a float can no longer represent every integer, so expanding one
+# to integer notation appends digits that were never in the file.
+EXACT_INTEGER_LIMIT = 2**53
+
 
 @dataclass(frozen=True, slots=True)
 class Table:
@@ -147,13 +151,21 @@ def _render(value: Any) -> str:
     Calamine returns every number as a float, so an integer 3 arrives as 3.0.
     Passed on unchanged it would be rejected by any integer column, so whole
     numbers lose the decimal point here.
+
+    Only up to 2**53. A workbook holding a 20-digit account number has already
+    lost it, because the writing application rounded to a float before saving.
+    Expanding that float to integer notation would invent the missing digits and
+    hand the database a plausible, wrong identifier. Left in float form it fails
+    coercion instead and gets reported, which is the honest outcome.
     """
     if value is None:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, float):
-        return str(int(value)) if value.is_integer() else str(value)
+        if value.is_integer() and abs(value) <= EXACT_INTEGER_LIMIT:
+            return str(int(value))
+        return str(value)
     if isinstance(value, dt.datetime | dt.date | dt.time):
         return value.isoformat()
     return str(value)

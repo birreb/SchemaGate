@@ -120,3 +120,30 @@ def test_a_file_that_is_not_a_spreadsheet_is_rejected() -> None:
 def test_rejects_a_duplicate_header() -> None:
     with pytest.raises(MalformedDocumentError):
         read_spreadsheet(single([["total", "total"], [1, 2]]))
+
+
+def test_numbers_past_exact_integer_range_are_not_expanded() -> None:
+    table = read_spreadsheet(single([["account_number"], [12345678901234567890]]))
+
+    rendered = table.rows[0][0]
+
+    assert "12345678901234567168" not in rendered, (
+        "int() past 2**53 invents digits that were never in the file, "
+        "and a fabricated account number is worse than a rejected one"
+    )
+    assert rendered.endswith("e+19"), (
+        "past the exact-integer limit the value stays in float form, "
+        "which fails integer coercion and gets reported rather than written"
+    )
+
+
+def test_the_largest_exact_integer_is_still_expanded() -> None:
+    table = read_spreadsheet(single([["n"], [2**53]]))
+
+    assert table.rows == (("9007199254740992",),)
+
+
+def test_ordinary_whole_numbers_are_unaffected() -> None:
+    table = read_spreadsheet(single([["n"], [1000000]]))
+
+    assert table.rows == (("1000000",),)
