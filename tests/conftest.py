@@ -1,3 +1,8 @@
+# asyncpg.Connection is generic to type checkers but not at runtime. Python 3.14
+# evaluates annotations lazily and never notices, while 3.11 to 3.13 evaluate
+# them on definition and raise. Deferring here keeps one spelling for both.
+from __future__ import annotations
+
 import os
 from collections.abc import AsyncIterator
 

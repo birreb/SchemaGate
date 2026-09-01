@@ -16,7 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # 3.14 is included because uv resolves to it locally. Without it, code
+        # written on a developer machine runs on a version CI never exercises.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     services:
       postgres:
