@@ -1,6 +1,6 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 5 built. Discovery, model compilation, the tabular fast path, the
+Status: milestones 0 to 6 built. It runs. Discovery, model compilation, the tabular fast path, the
 native PDF path, upload routing, the validation gate and the Ollama extractor all work and are
 under test. Nothing is wired into an HTTP endpoint yet. See [Milestones](#milestones) for detail.
 
@@ -490,8 +490,8 @@ the smallest implementation that passes it.
    no model, so it is fully testable on its own.
 5. **Done.** First real extractor, Ollama. Container model, schema-constrained generation, and the
    validation gate already in place to catch well-formed wrong answers.
-6. Docker image, compose file, and the README. Someone else runs it against their own database
-   without asking a question.
+6. **Done.** Docker image, compose file, README and playground. Someone else runs it against
+   their own database without asking a question.
 7. Hosted extractors, Anthropic then OpenAI. Two more implementations of the same protocol,
    which is what proves the protocol was the right shape.
 8. Local selective OCR for scanned PDFs, plus the bundled-model image tag.
