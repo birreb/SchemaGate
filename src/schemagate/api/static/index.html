@@ -16,7 +16,11 @@
     --dim: #8a8a8a;
     --faint: #5a5a5a;
     --line: #1c1c1c;
-    --edge: #2c2c2c;
+    --edge: #2f3236;
+    /* Two surfaces, resting and touched, so a control is visible before you
+       reach it and answers when you do. */
+    --field: #131518;
+    --field-hi: #1b1e22;
     --flag: #c8a45c;
     --bad: #c76a5e;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -62,52 +66,72 @@
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 28px; }
   label { display: block; }
   .name {
-    display: block; margin-bottom: 10px;
+    display: block; margin-bottom: 9px;
     font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
   }
-  input, select {
-    width: 100%; padding: 0 0 9px; border: 0; border-bottom: 1px solid var(--edge);
-    border-radius: 0; background: transparent; color: var(--ink);
-    font-family: var(--mono); font-size: 13.5px; appearance: none;
+  /* Structure is drawn with hairlines; anything you can operate gets a surface.
+     Without that distinction a select is indistinguishable from a caption, which
+     is what minimalism costs if it is taken one step too far. */
+  input, select, textarea {
+    width: 100%; padding: 11px 13px;
+    border: 1px solid var(--edge); border-radius: 0;
+    background: var(--field); color: var(--ink);
+    font-family: var(--mono); font-size: 13.5px;
+    appearance: none; transition: background .12s, border-color .12s;
   }
+  input:hover, select:hover, textarea:hover { background: var(--field-hi); border-color: var(--dim); }
+  input:focus, select:focus, textarea:focus {
+    outline: none; background: var(--field-hi); border-color: var(--ink);
+  }
+  input::placeholder, textarea::placeholder { color: #4a4a4a; }
+
   select {
-    cursor: pointer; padding-right: 18px;
-    background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%),
-                      linear-gradient(135deg, var(--faint) 50%, transparent 50%);
-    background-position: right 5px top 6px, right 0 top 6px;
-    background-size: 5px 5px, 5px 5px;
+    cursor: pointer; padding-right: 34px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+      linear-gradient(135deg, var(--dim) 50%, transparent 50%),
+      linear-gradient(var(--field), var(--field));
+    background-position: right 15px center, right 9px center, 0 0;
+    background-size: 6px 6px, 6px 6px, 100% 100%;
     background-repeat: no-repeat;
   }
-  select option { background: #141414; color: var(--ink); }
-  input:focus, select:focus { outline: none; border-bottom-color: var(--ink); }
-  input::placeholder { color: var(--faint); }
-  .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
-  textarea {
-    width: 100%; min-height: 84px; resize: vertical;
-    padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--edge); border-radius: 0;
-    background: transparent; color: var(--ink);
-    font-family: var(--mono); font-size: 13.5px; line-height: 1.6;
+  select:hover, select:focus {
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+      linear-gradient(135deg, var(--ink) 50%, transparent 50%),
+      linear-gradient(var(--field-hi), var(--field-hi));
   }
-  textarea:focus { outline: none; border-bottom-color: var(--ink); }
-  textarea::placeholder { color: var(--faint); }
+  select option { background: #16181b; color: var(--ink); }
+  .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
+  textarea { min-height: 96px; resize: vertical; line-height: 1.65; }
 
   #drop {
-    border: 1px dashed var(--edge); padding: 48px 24px; text-align: center; cursor: pointer;
-    transition: border-color .14s;
+    border: 1px dashed var(--edge); background: var(--field);
+    padding: 48px 24px; text-align: center; cursor: pointer;
+    transition: border-color .14s, background .14s;
   }
-  #drop:hover, #drop.over { border-color: var(--dim); }
+  #drop:hover, #drop.over { border-color: var(--ink); background: var(--field-hi); }
+  #drop:focus-visible { outline: none; border-color: var(--ink); background: var(--field-hi); }
   #drop p { margin: 0; color: var(--faint); font-size: 13.5px; letter-spacing: .03em; }
   #drop strong { color: var(--ink); font-weight: 500; }
   #chosen { font-family: var(--mono); color: var(--ink) !important; }
 
   .actions { display: flex; align-items: center; gap: 22px; margin-top: 32px; }
+  /* The one thing on the page that performs an action, so it is the one solid
+     shape. Everything else is an outline. */
   button {
-    padding: 0 0 7px; border: 0; border-bottom: 1px solid var(--ink); border-radius: 0;
-    background: none; color: var(--ink); cursor: pointer;
-    font: inherit; font-size: 14px; letter-spacing: .03em;
+    padding: 12px 26px; border: 1px solid var(--ink); border-radius: 0;
+    background: var(--ink); color: #0a0a0a; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase;
+    transition: background .12s, color .12s;
   }
   button::after { content: "  \2192"; }
-  button:disabled { color: var(--faint); border-bottom-color: var(--line); cursor: default; }
+  button:hover:not(:disabled) { background: transparent; color: var(--ink); }
+  button:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+  button:disabled {
+    background: transparent; color: #454545; border-color: var(--line); cursor: default;
+  }
   .hint { color: var(--faint); font-size: 12.5px; }
 
   .state { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; }
