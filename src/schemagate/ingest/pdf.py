@@ -3,9 +3,9 @@ import io
 import os
 import pathlib
 from collections.abc import Sequence
-from typing import Any
 from dataclasses import dataclass
 from functools import cache
+from typing import Any
 
 import anyio.to_thread
 import pdf_inspector

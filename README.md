@@ -8,7 +8,11 @@ Turn a document into rows that fit a PostgreSQL table you already own.
 
 SchemaGate reads your table definition from the live database, compiles it into a validation
 model at runtime, and constrains extraction so the output cannot disagree with your schema. It
-returns JSON over HTTP and writes nothing. There is no dashboard.
+returns JSON over HTTP and writes nothing to your database.
+
+The API is the product. There is a page at the root for trying it and for watching what the
+pipeline did, but it is a playground rather than somewhere anyone is meant to work: no
+queues, no review inboxes, no accounts. You render the result in your own application.
 
 ```console
 $ curl -s localhost:8000/v1/extract \
