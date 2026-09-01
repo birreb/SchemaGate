@@ -26,6 +26,12 @@ router = APIRouter()
 # every request would be work done for no reason.
 PLAYGROUND = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
 
+REQUEST_CREDENTIALS_OFF = (
+    "Choosing a provider per request is off. It sends a credential over HTTP, "
+    "so it has to be enabled deliberately with "
+    "SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS=true."
+)
+
 
 class SchemaSource(Protocol):
     """Where table definitions come from."""
@@ -77,6 +83,45 @@ async def tables(request: Request, connection: Annotated[str, Query()]) -> dict[
         raise HTTPException(status_code=503, detail=str(error)) from error
 
     return {"tables": [{"schema": ref.schema, "name": ref.name, "kind": ref.kind} for ref in found]}
+
+
+@router.post("/v1/models")
+async def models(
+    request: Request,
+    provider: Annotated[str, Form()],
+    api_key: Annotated[str | None, Form()] = None,
+    base_url: Annotated[str | None, Form()] = None,
+) -> dict[str, Any]:
+    """Which models this provider will accept.
+
+    Asked of the provider rather than kept as a list here, so it cannot go
+    stale, it reflects what this key is entitled to, and for a local runtime it
+    shows what has actually been pulled.
+    """
+    settings: Settings = request.app.state.settings
+
+    if api_key and not settings.allow_request_credentials:
+        raise HTTPException(status_code=403, detail=REQUEST_CREDENTIALS_OFF)
+
+    from schemagate.api.app import make_model_client
+    from schemagate.extract.catalog import list_models
+
+    try:
+        client = make_model_client(
+            provider=provider,
+            api_key=api_key or None,
+            base_url=base_url or None,
+            ollama_host=settings.ollama_host,
+        )
+        listing = await list_models(provider, client)
+    except (ConfigurationError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return {
+        "models": list(listing.models),
+        "source": listing.source,
+        "detail": listing.detail,
+    }
 
 
 @router.get("/health")
@@ -177,14 +222,7 @@ def _choose_extractor(
         return request.app.state.extractor
 
     if not settings.allow_request_credentials:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Choosing a provider per request is off. It sends a credential "
-                "over HTTP, so it has to be enabled deliberately with "
-                "SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS=true."
-            ),
-        )
+        raise HTTPException(status_code=403, detail=REQUEST_CREDENTIALS_OFF)
 
     from schemagate.api.app import make_extractor
 

@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -129,4 +130,32 @@ def make_extractor(
     return OllamaExtractor(
         client=AsyncClient(host=base_url or ollama_host),
         model=model or DEFAULT_OLLAMA_MODEL,
+    )
+
+
+def make_model_client(
+    provider: str,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    ollama_host: str = "http://localhost:11434",
+) -> Any:
+    """Build the raw SDK client used only to enumerate models."""
+    if provider == "anthropic":
+        from anthropic import AsyncAnthropic
+
+        return AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic()
+
+    if provider in {"openai", "openai_compatible"}:
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(api_key=api_key or "unused", base_url=base_url)
+
+    if provider == "ollama":
+        from ollama import AsyncClient
+
+        return AsyncClient(host=base_url or ollama_host)
+
+    raise ConfigurationError(
+        f"Unknown provider {provider!r}. Choose anthropic, openai, "
+        f"openai_compatible or ollama."
     )

@@ -108,3 +108,25 @@ def test_the_server_still_works_with_no_provider_in_the_request() -> None:
     response = client().post("/v1/extract", **upload())
 
     assert response.status_code == 200
+
+
+def test_listing_models_needs_permission_when_a_key_is_sent() -> None:
+    response = client().post("/v1/models", data={"provider": "anthropic", "api_key": KEY})
+
+    assert response.status_code == 403
+    assert KEY not in response.text
+
+
+def test_listing_models_without_a_key_is_allowed() -> None:
+    response = client().post("/v1/models", data={"provider": "anthropic"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] in {"provider", "fallback"}
+    assert isinstance(body["models"], list)
+
+
+def test_listing_models_for_an_unknown_provider_is_rejected() -> None:
+    response = client().post("/v1/models", data={"provider": "wishful"})
+
+    assert response.status_code == 422

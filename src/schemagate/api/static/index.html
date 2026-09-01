@@ -149,7 +149,7 @@
       </label>
       <label id="model-field" hidden>
         <span class="name">MODEL</span>
-        <input type="text" id="model" spellcheck="false" autocomplete="off">
+        <select id="model"></select>
       </label>
       <label id="key-field" hidden>
         <span class="name">API KEY</span>
@@ -282,14 +282,58 @@
         "Spreadsheets and CSV files never reach a model. Only PDFs do.";
       return refresh();
     }
-    $("model").placeholder = spec.model;
     $("base-url").placeholder = spec.urlHint ?? "";
-    $("model").value = recall("model." + name);
     $("api-key").value = recall("key." + name);
     $("base-url").value = recall("url." + name) || (spec.urlHint ?? "");
-    $("model-note").textContent = spec.key
+    loadModels();
+    refresh();
+  };
+
+  // Asked of the provider rather than hardcoded here, so the list cannot go
+  // stale and reflects what this key is actually entitled to.
+  let modelRequest = 0;
+  const loadModels = async () => {
+    const name = $("provider").value;
+    const spec = PROVIDERS[name];
+    const select = $("model");
+    if (!spec) return;
+
+    const ticket = ++modelRequest;
+    select.innerHTML = `<option value="">loading…</option>`;
+
+    const form = new FormData();
+    form.append("provider", name);
+    if ($("api-key").value) form.append("api_key", $("api-key").value);
+    if ($("base-url").value.trim()) form.append("base_url", $("base-url").value.trim());
+
+    let body;
+    try {
+      const response = await fetch("/v1/models", { method: "POST", body: form });
+      body = await response.json();
+      if (!response.ok) body = { models: [], source: "error", detail: body.detail };
+    } catch (error) {
+      body = { models: [], source: "error", detail: String(error) };
+    }
+
+    // A slower earlier request must not overwrite a newer one.
+    if (ticket !== modelRequest) return;
+
+    const saved = recall("model." + name);
+    const models = body.models.length ? body.models : (saved ? [saved] : []);
+
+    select.innerHTML = models.length
+      ? models.map((m) => `<option value="${escape(m)}">${escape(m)}</option>`).join("")
+      : `<option value="">none available</option>`;
+    if (models.includes(saved)) select.value = saved;
+    else if (models.includes(spec.model)) select.value = spec.model;
+
+    const where = spec.key
       ? "The key stays in this browser and is sent with each request. It is never stored on the server."
       : "Runs on this machine. Nothing leaves your network.";
+    const listing = body.source === "provider"
+      ? `${models.length} models offered by the provider.`
+      : (body.detail ?? "");
+    $("model-note").textContent = `${listing} ${where}`.trim();
     refresh();
   };
 
@@ -327,9 +371,19 @@
   $("connection").addEventListener("change", () => { remember("connection", $("connection").value); loadTables(); });
   $("table").addEventListener("change", () => remember("table", $("table").value));
   $("provider").addEventListener("change", () => { remember("provider", $("provider").value); applyProvider(); });
-  $("model").addEventListener("input", () => remember("model." + $("provider").value, $("model").value));
-  $("api-key").addEventListener("input", () => remember("key." + $("provider").value, $("api-key").value));
-  $("base-url").addEventListener("input", () => remember("url." + $("provider").value, $("base-url").value));
+  $("model").addEventListener("change", () => remember("model." + $("provider").value, $("model").value));
+
+  // Re-list once typing settles, since the key is what decides what is offered.
+  let settle;
+  const relist = () => { clearTimeout(settle); settle = setTimeout(loadModels, 600); };
+  $("api-key").addEventListener("input", () => {
+    remember("key." + $("provider").value, $("api-key").value);
+    relist();
+  });
+  $("base-url").addEventListener("input", () => {
+    remember("url." + $("provider").value, $("base-url").value);
+    relist();
+  });
 
   $("run").addEventListener("click", async () => {
     $("run").disabled = true;
@@ -347,7 +401,7 @@
     const provider = $("provider").value;
     if (provider) {
       form.append("provider", provider);
-      if ($("model").value.trim()) form.append("model", $("model").value.trim());
+      if ($("model").value) form.append("model", $("model").value);
       if ($("api-key").value) form.append("api_key", $("api-key").value);
       if ($("base-url").value.trim()) form.append("base_url", $("base-url").value.trim());
     }
