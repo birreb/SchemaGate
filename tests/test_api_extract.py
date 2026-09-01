@@ -336,3 +336,16 @@ def test_instructions_reach_the_model_with_the_document() -> None:
 
     assert seen and "Dates are day first here." in seen[0]
     assert "<document>" in seen[0], "the untrusted part stays marked off"
+
+
+def test_the_dropdowns_do_not_rely_on_the_native_popup() -> None:
+    page = client().get("/").text
+
+    assert "picker-list" in page, (
+        "Chrome on Windows draws the native popup in system colours and ignores "
+        "color-scheme, so a dark page gets a white list"
+    )
+    assert "MutationObserver" in page, (
+        "the real select stays the source of truth, so the styled list has to "
+        "follow when options are rebuilt"
+    )

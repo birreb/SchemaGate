@@ -105,6 +105,52 @@
       linear-gradient(135deg, var(--ink) 50%, transparent 50%);
   }
   select option, select optgroup { background-color: #16181b; color: var(--ink); }
+
+  /* Chrome on Windows draws the open popup with operating system colours and
+     ignores color-scheme on the element, so a dark page gets a white list with
+     a stray native arrow. The real select stays as the source of truth and is
+     kept in the DOM; this is the part people see. */
+  .picker { position: relative; }
+  .picker select { position: absolute; opacity: 0; pointer-events: none; height: 0; }
+  .picker-trigger {
+    width: 100%; padding: 11px 34px 11px 13px; text-align: left;
+    border: 1px solid var(--edge); border-radius: 0;
+    background: var(--field); color: var(--ink); cursor: pointer;
+    font-family: var(--mono); font-size: 13.5px; font-weight: 400;
+    letter-spacing: 0; text-transform: none;
+    transition: background .12s, border-color .12s;
+  }
+  .picker-trigger::after {
+    content: ""; position: absolute; right: 14px; top: 50%;
+    width: 6px; height: 6px; margin-top: -5px;
+    border-right: 1px solid var(--dim); border-bottom: 1px solid var(--dim);
+    transform: rotate(45deg); transition: border-color .12s, transform .12s;
+  }
+  .picker-trigger:hover, .picker.open .picker-trigger {
+    background: var(--field-hi); border-color: var(--ink);
+  }
+  .picker-trigger:hover::after, .picker.open .picker-trigger::after {
+    border-color: var(--ink);
+  }
+  .picker.open .picker-trigger::after { transform: rotate(225deg); margin-top: -1px; }
+  .picker-trigger:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
+
+  .picker-list {
+    position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% - 1px);
+    max-height: 264px; overflow-y: auto;
+    background: #16181b; border: 1px solid var(--ink);
+  }
+  .picker-option {
+    display: block; width: 100%; padding: 10px 13px; text-align: left;
+    border: 0; border-radius: 0; background: none; color: var(--dim); cursor: pointer;
+    font-family: var(--mono); font-size: 13px; font-weight: 400;
+    letter-spacing: 0; text-transform: none;
+  }
+  .picker-option::after { content: none; }
+  .picker-option:hover, .picker-option.active { background: var(--field-hi); color: var(--ink); }
+  .picker-option.on { color: var(--ink); }
+  .picker-option.on::before { content: "\2022  "; color: var(--ink); }
+  .picker-option:disabled { color: #3d3d3d; cursor: default; }
   .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
   textarea { min-height: 96px; resize: vertical; line-height: 1.65; }
 
@@ -562,6 +608,68 @@ Ignore the summary page at the end."></textarea>
     countInstructions();
   });
   $("table").addEventListener("change", loadInstructions);
+
+  // Layer a styled list over each native select. The select itself stays in the
+  // DOM and remains the source of truth, so everything above keeps reading
+  // .value and rebuilding .innerHTML exactly as before. A MutationObserver
+  // catches those rebuilds, which is why none of that code had to change.
+  const enhance = (select) => {
+    const wrap = document.createElement("div");
+    wrap.className = "picker";
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(select);
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "picker-trigger";
+    const list = document.createElement("div");
+    list.className = "picker-list";
+    list.hidden = true;
+    wrap.append(trigger, list);
+
+    const close = () => { list.hidden = true; wrap.classList.remove("open"); };
+    const open = () => {
+      document.querySelectorAll(".picker.open").forEach((other) => {
+        if (other !== wrap) { other.classList.remove("open"); other.querySelector(".picker-list").hidden = true; }
+      });
+      list.hidden = false;
+      wrap.classList.add("open");
+      const chosen = list.querySelector(".on");
+      if (chosen) chosen.scrollIntoView({ block: "nearest" });
+    };
+
+    const draw = () => {
+      const selected = select.options[select.selectedIndex];
+      trigger.textContent = selected ? selected.textContent : "";
+      list.innerHTML = "";
+      [...select.options].forEach((option, index) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "picker-option" + (index === select.selectedIndex ? " on" : "");
+        item.textContent = option.textContent;
+        item.disabled = option.disabled || option.value === "";
+        item.addEventListener("click", () => {
+          select.selectedIndex = index;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          close();
+          draw();
+        });
+        list.appendChild(item);
+      });
+    };
+
+    trigger.addEventListener("click", () => (list.hidden ? open() : close()));
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+      if (event.key === "ArrowDown" && list.hidden) { event.preventDefault(); open(); }
+    });
+    document.addEventListener("click", (event) => { if (!wrap.contains(event.target)) close(); });
+    select.addEventListener("change", draw);
+    new MutationObserver(draw).observe(select, { childList: true, subtree: true });
+    draw();
+  };
+
+  document.querySelectorAll("select").forEach(enhance);
 
   $("provider").value = recall("provider");
   applyProvider();
