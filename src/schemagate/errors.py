@@ -24,3 +24,7 @@ class MalformedDocumentError(SchemaGateError):
 
 class UnsupportedFileTypeError(SchemaGateError):
     """An upload is not a file type SchemaGate knows how to read."""
+
+
+class ExtractionError(SchemaGateError):
+    """A model failed to return usable output."""

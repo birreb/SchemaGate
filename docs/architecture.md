@@ -1,8 +1,8 @@
 # SchemaGate architecture
 
-Status: milestones 0 to 4 built. Discovery, model compilation, the tabular fast path, the
-native PDF path, upload routing and the validation gate all work and are under test. Nothing
-calls a model yet; extraction is next. See [Milestones](#milestones) for detail.
+Status: milestones 0 to 5 built. Discovery, model compilation, the tabular fast path, the
+native PDF path, upload routing, the validation gate and the Ollama extractor all work and are
+under test. Nothing is wired into an HTTP endpoint yet. See [Milestones](#milestones) for detail.
 
 Decisions in this document are recorded with the reason behind them, including the ones that
 were revised after measurement. Where a note says a field or library behaves in a particular
@@ -488,7 +488,7 @@ the smallest implementation that passes it.
 3. **Done.** Native PDF path, thread-offloaded, plus content-based upload routing.
 4. **Done.** Validation gate. Coercion, database constraints and arithmetic rules. Pure logic,
    no model, so it is fully testable on its own.
-5. First real extractor, Ollama. Container model, schema-constrained generation, and the
+5. **Done.** First real extractor, Ollama. Container model, schema-constrained generation, and the
    validation gate already in place to catch well-formed wrong answers.
 6. Docker image, compose file, and the README. Someone else runs it against their own database
    without asking a question.

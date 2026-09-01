@@ -1,0 +1,72 @@
+from typing import Any, Protocol
+
+from pydantic import ValidationError
+
+from schemagate.errors import ExtractionError
+from schemagate.extract.base import SYSTEM_PROMPT, ModelT
+
+DEFAULT_MODEL = "qwen3"
+
+# A local runtime still honours these, unlike the hosted frontier models, which
+# reject sampling parameters outright. The same document should extract to the
+# same rows twice.
+DETERMINISTIC = {"temperature": 0, "seed": 0}
+
+
+class ChatClient(Protocol):
+    """The slice of `ollama.AsyncClient` this adapter uses."""
+
+    async def chat(self, **kwargs: Any) -> Any: ...
+
+
+class OllamaExtractor:
+    """Extract through a local Ollama server.
+
+    Ollama takes a JSON Schema in `format` and constrains generation against it
+    with XGrammar, so the shape of the output is enforced while the tokens are
+    chosen, inside a runtime the operator controls. That is a stronger guarantee
+    than a hosted promise, and it keeps the document on the customer's network.
+
+    Shape is not accuracy. A small model returns well-formed wrong answers more
+    often than a large one, which is why the validation gate exists and why it
+    was built before this.
+    """
+
+    def __init__(self, client: ChatClient, model: str = DEFAULT_MODEL) -> None:
+        self._client = client
+        self._model = model
+
+    async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+        schema = model.model_json_schema()
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": document},
+        ]
+
+        # Broad on purpose, and narrow in scope: this call is the boundary to
+        # another process, and everything it can fail with should reach the
+        # caller as one recognisable error. Nothing of ours runs inside it.
+        try:
+            response = await self._client.chat(
+                model=self._model,
+                messages=messages,
+                format=schema,
+                options=dict(DETERMINISTIC),
+            )
+        except Exception as error:
+            raise ExtractionError(
+                f"Could not reach the Ollama server for model {self._model!r}. "
+                f"Is `ollama serve` running? ({error})"
+            ) from error
+
+        content = getattr(response.message, "content", None)
+        if not content:
+            raise ExtractionError(f"Model {self._model!r} returned an empty response.")
+
+        try:
+            return model.model_validate_json(content)
+        except ValidationError as error:
+            raise ExtractionError(
+                f"Model {self._model!r} returned output that does not match "
+                f"{model.__name__}: {error}"
+            ) from error
