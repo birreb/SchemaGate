@@ -9,6 +9,7 @@ import anyio.to_thread
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import Extractor, compose
+from schemagate.ingest.headers import map_headers
 from schemagate.ingest.images import NormalisedImage, normalise
 from schemagate.ingest.pdf import read_pdf_async, render_pages
 from schemagate.ingest.router import FileKind, detect_kind
@@ -149,7 +150,18 @@ async def _read(
 
         with steps.step("match") as note:
             aligned = align(table, schema)
-            note.detail = _describe_match(aligned, schema)
+
+            # Headings that do not match by spelling may still mean a column:
+            # `Fakturanr` is an invoice number and no amount of string handling
+            # will say so. Only the names are sent, never the rows, so the data
+            # still never reaches a provider.
+            aliases: dict[str, str] = {}
+            if aligned.unmatched_headers and aligned.missing_columns:
+                aliases = await map_headers(aligned.unmatched_headers, schema, extractor)
+                if aliases:
+                    aligned = align(table, schema, aliases)
+
+            note.detail = _describe_match(aligned, schema, aliases)
 
         return Route.TABULAR, aligned.rows, (aligned.unmatched_headers, aligned.missing_columns)
 
@@ -205,7 +217,9 @@ async def _read(
     raise UnsupportedFileTypeError(f"{kind.value} uploads are not supported.")
 
 
-def _describe_match(aligned: Any, schema: TableSchema) -> str:
+def _describe_match(
+    aligned: Any, schema: TableSchema, aliases: dict[str, str] | None = None
+) -> str:
     """What lined up, and what the database keeps for itself."""
     wanted = schema.extractable
     matched = len(wanted) - len(aligned.missing_columns)
@@ -213,6 +227,9 @@ def _describe_match(aligned: Any, schema: TableSchema) -> str:
     owned = [c.name for c in schema.columns if not c.is_extractable]
     if owned:
         parts.append(f"the database fills {', '.join(owned)}")
+    if aliases:
+        named = ", ".join(f"{header} to {column}" for header, column in aliases.items())
+        parts.append(f"a model matched {named} by meaning")
     if aligned.unmatched_headers:
         parts.append(f"ignored {', '.join(aligned.unmatched_headers)}")
     return "; ".join(parts)

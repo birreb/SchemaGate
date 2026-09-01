@@ -3,6 +3,7 @@ import csv
 import datetime as dt
 import io
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,7 +72,7 @@ class Alignment:
     missing_columns: tuple[str, ...] = ()
 
 
-def align(table: Table, schema: TableSchema) -> Alignment:
+def align(table: Table, schema: TableSchema, aliases: Mapping[str, str] | None = None) -> Alignment:
     """Key each row by column name, matching headers loosely.
 
     A header is matched by comparing it to the column name with case, spacing
@@ -80,11 +81,14 @@ def align(table: Table, schema: TableSchema) -> Alignment:
     file cannot supply an identity value.
     """
     columns = {_normalize(column.name): column.name for column in schema.extractable}
+    # A heading a model matched to a column counts the same as one that
+    # matched by spelling. It arrives already checked against the table.
+    named = dict(aliases or {})
 
     positions: dict[str, int] = {}
     unmatched: list[str] = []
     for index, header in enumerate(table.headers):
-        column = columns.get(_normalize(header))
+        column = named.get(header) or columns.get(_normalize(header))
         if column is None:
             unmatched.append(header)
         elif column in positions:

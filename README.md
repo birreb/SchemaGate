@@ -164,8 +164,8 @@ the problem entirely by being one variable each.
 
 | Input | Parser | Model call |
 | --- | --- | --- |
-| CSV, TSV | stdlib `csv` with encoding detection | no |
-| XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | no |
+| CSV, TSV | stdlib `csv` with encoding detection | headings only, if needed |
+| XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | headings only, if needed |
 | PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | yes |
 | Scanned PDF | local OCR, escalating to vision when OCR says it failed | yes |
 | Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then read by a vision model | yes |
@@ -173,8 +173,17 @@ the problem entirely by being one variable each.
 Uploads are identified by content, not by filename or the declared content type. A PDF named
 `statement.csv` is treated as a PDF.
 
-Tabular files never reach a model, so they cost nothing to process. `timings_ms` in every
-response shows where the time actually went.
+**A tabular file's rows never reach a model.** Headings are matched to columns by comparing
+them with case, spacing and punctuation removed, so `Invoice Number` finds `invoice_number`
+for free.
+
+When that fails, the headings alone are sent to a model. `Fakturanr` means an invoice number
+and no amount of string handling will work that out, but deciding it needs the column names
+and nothing else. The rows stay where they are. The answer is cached against the headings and
+the table, so the second file from that supplier costs nothing, and the model can only reply
+with a column your table actually has.
+
+`stages` in every response says which of those happened.
 
 ## Scanned pages
 
