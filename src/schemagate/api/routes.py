@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Protocol
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 from schemagate.api.serialize import to_json_row
@@ -17,7 +17,7 @@ from schemagate.errors import (
     UnsupportedFileTypeError,
 )
 from schemagate.pipeline import process
-from schemagate.schema.spec import TableSchema
+from schemagate.schema.spec import TableRef, TableSchema
 
 router = APIRouter()
 
@@ -27,9 +27,11 @@ PLAYGROUND = (Path(__file__).parent / "static" / "index.html").read_text(encodin
 
 
 class SchemaSource(Protocol):
-    """Where a table definition comes from."""
+    """Where table definitions come from."""
 
     async def fetch(self, connection: str, schema: str, table: str) -> TableSchema: ...
+
+    async def tables(self, connection: str) -> tuple[TableRef, ...]: ...
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -42,6 +44,38 @@ async def playground() -> str:
     or a script from the internet would not load inside a private network.
     """
     return PLAYGROUND
+
+
+@router.get("/v1/connections")
+async def connections(request: Request) -> dict[str, list[str]]:
+    """The names a caller may use, and only the names.
+
+    What each one points at stays on the server. Knowing a connection is called
+    `primary` tells you nothing about where it goes or how to reach it.
+    """
+    settings: Settings = request.app.state.settings
+    return {"connections": sorted(settings.connections)}
+
+
+@router.get("/v1/tables")
+async def tables(request: Request, connection: Annotated[str, Query()]) -> dict[str, Any]:
+    """Every relation the connected role can read.
+
+    Offered so a caller can choose rather than type a name and find out later
+    whether it exists.
+    """
+    settings: Settings = request.app.state.settings
+    schemas: SchemaSource = request.app.state.schemas
+
+    try:
+        settings.dsn(connection)
+        found = await schemas.tables(connection)
+    except UnknownConnectionError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except DatabaseUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    return {"tables": [{"schema": ref.schema, "name": ref.name, "kind": ref.kind} for ref in found]}
 
 
 @router.get("/health")

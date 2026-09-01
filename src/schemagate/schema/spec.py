@@ -4,6 +4,19 @@ from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True, slots=True)
+class TableRef:
+    """A relation a caller could extract into, as offered for selection."""
+
+    schema: str
+    name: str
+    kind: str
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.schema}.{self.name}"
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnSpec:
     """One column of a target table, as read from `pg_catalog`."""
 

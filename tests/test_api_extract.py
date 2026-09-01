@@ -9,7 +9,7 @@ from schemagate.api.app import create_app
 from schemagate.config import Settings
 from schemagate.errors import ConfigurationError, TableNotFoundError
 from schemagate.extract.base import ModelT
-from schemagate.schema.spec import ColumnSpec, TableSchema
+from schemagate.schema.spec import ColumnSpec, TableRef, TableSchema
 
 DSN = "postgresql://user:password@localhost:5432/billing"
 
@@ -34,6 +34,9 @@ class FakeSchemas:
         if table != "invoices":
             raise TableNotFoundError(f"Table {schema}.{table} does not exist.")
         return INVOICES
+
+    async def tables(self, connection: str) -> tuple[TableRef, ...]:
+        return (TableRef(schema="public", name="invoices", kind="table"),)
 
 
 class StubExtractor:
@@ -197,6 +200,9 @@ def test_an_unreachable_database_is_not_an_internal_error() -> None:
 
     class DownSchemas:
         async def fetch(self, connection: str, schema: str, table: str) -> TableSchema:
+            raise DatabaseUnavailableError(f"Cannot reach the database for {connection!r}.")
+
+        async def tables(self, connection: str) -> tuple[TableRef, ...]:
             raise DatabaseUnavailableError(f"Cannot reach the database for {connection!r}.")
 
     app = create_app(

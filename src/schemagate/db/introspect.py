@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from schemagate.errors import TableNotFoundError
-from schemagate.schema.spec import ColumnSpec, TableSchema
+from schemagate.schema.spec import ColumnSpec, TableRef, TableSchema
 
 # Read from pg_catalog rather than information_schema. The standard views report
 # every enum column as USER-DEFINED, carry no column comments at all, and apply
@@ -61,6 +61,32 @@ ORDER BY a.attnum
 """
 
 
+# Only relations the connected role may actually read. Listing a table it
+# cannot select from would offer a choice that fails on use.
+TABLES_SQL = """
+SELECT
+    n.nspname   AS schema,
+    c.relname   AS name,
+    c.relkind::text AS relkind
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND n.nspname NOT LIKE 'pg_temp%'
+  AND has_table_privilege(c.oid, 'SELECT')
+ORDER BY n.nspname, c.relname
+"""
+
+RELATION_KINDS = {
+    "r": "table",
+    "p": "partitioned table",
+    "v": "view",
+    "m": "materialized view",
+    "f": "foreign table",
+}
+
+
 class Row(Protocol):
     """Column access by name.
 
@@ -93,6 +119,20 @@ async def introspect(connection: Queryable, schema: str, table: str) -> TableSch
         schema=schema,
         name=table,
         columns=tuple(to_column_spec(record) for record in records),
+    )
+
+
+async def list_tables(connection: Queryable) -> tuple[TableRef, ...]:
+    """Every relation the connected role can read, for a caller to choose from."""
+    records = await connection.fetch(TABLES_SQL)
+    return tuple(to_table_ref(record) for record in records)
+
+
+def to_table_ref(record: Row) -> TableRef:
+    return TableRef(
+        schema=record["schema"],
+        name=record["name"],
+        kind=RELATION_KINDS.get(record["relkind"], record["relkind"]),
     )
 
 

@@ -1,9 +1,9 @@
 import asyncpg
 
 from schemagate.config import Settings
-from schemagate.db.introspect import introspect
+from schemagate.db.introspect import introspect, list_tables
 from schemagate.errors import DatabaseUnavailableError
-from schemagate.schema.spec import TableSchema
+from schemagate.schema.spec import TableRef, TableSchema
 
 
 class PoolSchemas:
@@ -24,6 +24,14 @@ class PoolSchemas:
         try:
             async with pool.acquire() as held:
                 return await introspect(held, schema, table)
+        except (OSError, asyncpg.PostgresError) as error:
+            raise self._unreachable(connection, error) from error
+
+    async def tables(self, connection: str) -> tuple[TableRef, ...]:
+        pool = await self._pool(connection)
+        try:
+            async with pool.acquire() as held:
+                return await list_tables(held)
         except (OSError, asyncpg.PostgresError) as error:
             raise self._unreachable(connection, error) from error
 
