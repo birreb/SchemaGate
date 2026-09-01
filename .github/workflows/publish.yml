@@ -1,0 +1,74 @@
+name: Publish
+
+# Tag driven. A release is a deliberate act with a name, not something that
+# happens because a commit landed on main.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # A tag that disagrees with the version in the package publishes
+      # something nobody can reproduce from this repository.
+      - name: The tag and the version must agree
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(uv run --no-project --with hatchling python -c "
+          import tomllib, pathlib
+          print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])
+          ")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $declared in pyproject.toml" >&2
+            exit 1
+          fi
+        if: github.ref_type == 'tag'
+
+      - name: Install
+        run: uv sync --all-extras --frozen
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Check the metadata PyPI will read
+        run: uvx twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Trusted publishing: PyPI verifies this workflow's identity directly, so
+    # there is no long-lived API token in the repository to leak or rotate.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/schemagate
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

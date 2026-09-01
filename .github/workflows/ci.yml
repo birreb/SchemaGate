@@ -58,4 +58,97 @@ jobs:
         run: uv run mypy
 
       - name: Tests
-        run: uv run pytest -v
+        run: uv run pytest -v --cov --cov-report=term-missing
+
+  # The PDF path sets PDFIUM_LIB_PATH and ORT_DYLIB_PATH itself because Windows
+  # will not find those libraries on its own. That code existed for a year and
+  # ran on no machine CI had ever seen. No Postgres here: service containers are
+  # Linux only, and the marked tests skip themselves without a DSN.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --all-extras --frozen
+
+      - name: Tests
+        run: uv run pytest -q
+
+  # Proves the extras are real. Every import that a base install can reach must
+  # work with nothing but the core dependencies installed, or the split is a
+  # promise the metadata makes and the code breaks.
+  minimal:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the core alone
+        run: uv pip install --system .
+
+      - name: The library imports and runs without a server or a model
+        run: |
+          python - <<'PY'
+          import asyncio
+
+          from schemagate import ColumnSpec, TableSchema, process
+
+          table = TableSchema(
+              schema="public",
+              name="invoices",
+              columns=(ColumnSpec(name="invoice_number", data_type="text", nullable=False, ordinal=1),),
+          )
+          result = asyncio.run(
+              process(b"invoice_number\nINV-1\n", "invoices.csv", table, extractor=None)
+          )
+          assert result.rows[0]["invoice_number"] == "INV-1", result
+          assert result.spend.calls == 0
+          print("core install extracts a CSV with no extras present")
+          PY
+
+      - name: A missing extra says which extra installs it
+        run: |
+          python - <<'PY'
+          from schemagate.errors import MissingDependencyError
+          from schemagate.optional import require
+
+          for module, extra in (("pdf_inspector", "pdf"), ("anthropic", "anthropic")):
+              try:
+                  require(module)
+              except MissingDependencyError as error:
+                  assert f"schemagate[{extra}]" in str(error), error
+                  print(f"{module}: {error}")
+              else:
+                  raise SystemExit(f"{module} should not be installed in a core install")
+          PY
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build the distributions
+        run: uv build
+
+      - name: Check the metadata PyPI will read
+        run: uvx twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
