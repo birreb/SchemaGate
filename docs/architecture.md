@@ -44,8 +44,13 @@ In scope for the first working version:
 
 Explicitly out of scope for now:
 
-- Writing rows to the database. The service returns JSON and the caller decides. An opt-in
-  commit path is milestone 10, and it stays opt-in.
+- Writing rows to the database. The service returns JSON and the caller decides, which is
+  where a person approves or rejects. An opt-in commit path is milestone 10 and stays
+  opt-in, because a service that writes to a production database is a much larger thing to
+  trust than one that hands back JSON.
+- The review step itself. Failures are reported precisely enough to build one (row, column,
+  rule, value, and what the document said), and where that review happens is the caller's
+  decision: a queue, an inbox, a person at a desk, or an automatic accept above a threshold.
 - Any frontend, job queue, or persistent storage of uploaded files.
 - Training or hosting models.
 

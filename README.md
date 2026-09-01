@@ -7,14 +7,19 @@
 Document in, rows out, shaped by a PostgreSQL table you already own.
 
 SchemaGate reads the table's definition from the live database, sends an LLM a schema built
-from it, and constrains the model so the output cannot disagree with your columns. It checks
-the result and returns JSON you can insert. It never writes to your database.
+from it, and constrains the model so the output cannot disagree with your columns. It then
+checks the result and returns JSON, marking every value that failed a check and why.
+
+Nothing is written to your database. The `INSERT` is yours, which is where a person decides
+whether to run it. SchemaGate gives that person something to decide with: which row, which
+column, which rule, and what the document actually said.
 
 There is no mapping file to maintain: the table is the configuration. Alter a column and the
 next upload follows it.
 
 The page at the root is a playground for trying the API, not a place to work. No queues, no
-review inbox, no accounts.
+review inbox, no accounts. Review belongs in your application, and the response carries what
+it needs: per row and per column failures, the offending value, and the rule that rejected it.
 
 ```console
 $ curl -s localhost:8000/v1/extract \
@@ -56,7 +61,8 @@ $ curl -s localhost:8000/v1/extract \
 ```
 
 `flagged` is not an error. Extraction worked and a check did not hold. The rows still come
-back, nothing is silently repaired, and you decide what to do.
+back and nothing is silently repaired, so you can insert the clean ones, queue the flagged
+ones for somebody to look at, or reject the file. That decision is the point of the field.
 
 `stages` is the path the document actually took, with what each step found and how long it
 spent. On a PDF the model is always the slowest step by an order of magnitude, which is
