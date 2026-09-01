@@ -15,6 +15,25 @@ table definition from the live database, builds a validation model from it at ru
 constrains an LLM to produce output that matches. The API is the product; the page served at
 the root is a playground for judging it, not a dashboard for operating it.
 
+## Stack
+
+| Part | Choice | Why this one |
+| --- | --- | --- |
+| HTTP | FastAPI | OpenAPI for free, which is what makes clients generatable |
+| Schema | Pydantic v2 | `create_model` compiles a table definition at runtime |
+| Postgres | asyncpg | fastest async driver; psycopg2 is maintenance only |
+| PDF | pdf-inspector | Rust, and it classifies before it parses, which is what routes |
+| Spreadsheets | python-calamine | Rust, and reads legacy `.xls` which openpyxl cannot open |
+| OCR | PP-OCRv6 via ONNX Runtime | named in 2026 comparisons as the best default for print |
+| Rendering | pypdfium2 | PyMuPDF is the better known choice and is AGPL |
+| Images | Pillow, pillow-heif | HEIC is the iPhone default |
+| Models | official SDKs, no framework | see the Instructor note under Extract |
+| Tooling | uv, ruff, mypy strict, pytest | one tool for packaging, one for lint and format |
+
+Rejected on purpose: LangChain, LlamaIndex and Instructor, all of which sit between this and
+the provider SDKs. LlamaParse and the other hosted parsers are cloud only below their
+enterprise tier, which contradicts the reason to run this inside your own network.
+
 ## Scope
 
 In scope for the first working version:

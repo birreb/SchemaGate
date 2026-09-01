@@ -107,6 +107,30 @@ do not have, a value outside your enum, and a field of the wrong type are not ex
 This constrains the shape, not the content. Values can still be wrong, which is what step 4 is
 for.
 
+## Built on
+
+Python 3.11 to 3.14. The parsing is Rust underneath, the rest is small.
+
+| Part | What | Notes |
+| --- | --- | --- |
+| HTTP | [FastAPI](https://fastapi.tiangolo.com) | one endpoint, plus OpenAPI at `/openapi.json` |
+| Schema | [Pydantic](https://docs.pydantic.dev) v2 | your table compiled to a model at runtime, via `create_model` |
+| Postgres | [asyncpg](https://github.com/MagicStack/asyncpg) | one `pg_catalog` query, read only |
+| PDF | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) | Rust. Classification, layout, text, OCR routing |
+| Spreadsheets | [python-calamine](https://github.com/dimastbk/python-calamine) | Rust. xlsx, xls, xlsb, ods |
+| OCR | PP-OCRv6 via [ONNX Runtime](https://onnxruntime.ai) | local, optional, models fetched on first use |
+| Rendering | [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) | PDF pages to images for the vision fallback |
+| Images | [Pillow](https://python-pillow.org) + pillow-heif | EXIF rotation, flattening, downscaling, HEIC |
+| Encoding | [charset-normalizer](https://github.com/jawah/charset_normalizer) | gated: below 32 bytes it is not asked |
+| Models | official `anthropic`, `openai` and `ollama` SDKs | no wrapper framework |
+| Tooling | [uv](https://docs.astral.sh/uv), ruff, mypy strict, pytest | 400+ tests, CI on 3.11 to 3.14 |
+
+Two things it deliberately does not use. **No LLM framework**: LangChain, LlamaIndex and
+Instructor all sit between this and the provider SDKs, and Instructor in particular pins
+`anthropic` to an exact version and defaults to tool calling rather than native structured
+output. **No hosted parsing service**: LlamaParse and similar are cloud only below their
+enterprise tier, and the point of this is that documents stay on your network.
+
 ## Requirements
 
 - A PostgreSQL database with a table to extract into. SchemaGate needs only `SELECT` on
