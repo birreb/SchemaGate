@@ -82,6 +82,14 @@
   input:focus, select:focus { outline: none; border-bottom-color: var(--ink); }
   input::placeholder { color: var(--faint); }
   .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
+  textarea {
+    width: 100%; min-height: 84px; resize: vertical;
+    padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--edge); border-radius: 0;
+    background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.6;
+  }
+  textarea:focus { outline: none; border-bottom-color: var(--ink); }
+  textarea::placeholder { color: var(--faint); }
 
   #drop {
     border: 1px dashed var(--edge); padding: 48px 24px; text-align: center; cursor: pointer;
@@ -185,6 +193,22 @@
       </label>
     </div>
     <p class="aside" id="model-note">Spreadsheets and CSV files never reach a model. Only PDFs do.</p>
+  </section>
+
+  <section>
+    <div class="rule"><span>Instructions</span><span id="instructions-count"></span></div>
+    <label>
+      <span class="name">Anything the schema cannot say</span>
+      <textarea id="instructions" spellcheck="false"
+                placeholder="This supplier writes dates day first.
+The issue date is the one under the invoice number, not the due date.
+Ignore the summary page at the end."></textarea>
+    </label>
+    <p class="aside">
+      Passed to the model with the document, and kept out of the cached prefix so
+      it can change per request. Left empty, whatever is configured for this table
+      is used instead.
+    </p>
   </section>
 
   <section>
@@ -418,6 +442,9 @@
     form.append("schema", schema);
     form.append("table", rest.join("."));
 
+    const instructions = $("instructions").value.trim();
+    if (instructions) form.append("instructions", instructions);
+
     const provider = $("provider").value;
     if (provider) {
       form.append("provider", provider);
@@ -462,15 +489,18 @@
 
     const columns = body.rows.length ? Object.keys(body.rows[0]) : [];
     $("head").innerHTML = columns.length
-      ? `<tr>${columns.map((n) => `<th>${escape(n)}</th>`).join("")}</tr>` : "";
-    $("body").innerHTML = body.rows.map((row, index) =>
-      `<tr>${columns.map((n) => cell(row[n], bad.has(`${index}:${n}`))).join("")}</tr>`
-    ).join("");
+      ? `<tr><th class="index"></th>${columns.map((n) => `<th>${escape(n)}</th>`).join("")}</tr>`
+      : "";
+    $("body").innerHTML = body.rows.map((row, index) => {
+      const number = String(index + 1).padStart(2, "0");
+      const cells = columns.map((n) => cell(row[n], bad.has(`${index}:${n}`))).join("");
+      return `<tr><td class="index">${number}</td>${cells}</tr>`;
+    }).join("");
 
     $("failures").innerHTML = body.validation.failures.map((f) => `
       <div class="failure">
-        <div class="where">row ${f.row}${f.column ? ` · ${escape(f.column)}` : ""} · ${escape(f.rule)}</div>
-        ${escape(f.detail)}
+        <div class="where">Row ${String(f.row + 1).padStart(2, "0")}${f.column ? ` / ${escape(f.column)}` : ""} / ${escape(f.rule)}</div>
+        <div class="what">${escape(f.detail)}</div>
       </div>`).join("");
 
     const notes = [];
@@ -488,6 +518,23 @@
     const classes = [flagged ? "bad" : "", value === null ? "null" : ""].filter(Boolean).join(" ");
     return `<td class="${classes}">${escape(value === null ? "null" : String(value))}</td>`;
   };
+
+  // Guidance is per table: what a supplier's invoices mean is not a property
+  // of the browser session.
+  const instructionsKey = () => "instructions." + ($("table").value || "any");
+  const loadInstructions = () => {
+    $("instructions").value = recall(instructionsKey());
+    countInstructions();
+  };
+  const countInstructions = () => {
+    const length = $("instructions").value.trim().length;
+    $("instructions-count").textContent = length ? `${length} characters` : "";
+  };
+  $("instructions").addEventListener("input", () => {
+    remember(instructionsKey(), $("instructions").value);
+    countInstructions();
+  });
+  $("table").addEventListener("change", loadInstructions);
 
   $("provider").value = recall("provider");
   applyProvider();

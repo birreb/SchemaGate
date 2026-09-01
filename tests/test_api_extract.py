@@ -296,3 +296,43 @@ def test_the_playground_asks_the_provider_for_its_models() -> None:
     assert "/v1/models" in page, (
         "a hardcoded list would go stale and would not reflect what a given key is entitled to"
     )
+
+
+def test_the_playground_has_a_place_for_instructions() -> None:
+    page = client().get("/").text
+
+    assert 'id="instructions"' in page
+
+
+def test_instructions_reach_the_model_with_the_document() -> None:
+    seen: list[str] = []
+
+    class Recorder:
+        async def extract(self, document: str, model: type[ModelT]) -> ModelT:
+            seen.append(document)
+            return model.model_validate({"rows": []})
+
+    app = create_app(
+        settings=Settings(connections={"primary": DSN}),
+        schemas=FakeSchemas(),
+        extractor=Recorder(),
+    )
+    subject = TestClient(app, raise_server_exceptions=False)
+
+    document = FPDF()
+    document.add_page()
+    document.set_font("helvetica", size=12)
+    document.cell(0, 8, "Invoice INV-1 total 10.00")
+
+    subject.post(
+        "/v1/extract",
+        files={"file": ("invoice.pdf", bytes(document.output()), "application/pdf")},
+        data={
+            "connection": "primary",
+            "table": "invoices",
+            "instructions": "Dates are day first here.",
+        },
+    )
+
+    assert seen and "Dates are day first here." in seen[0]
+    assert "<document>" in seen[0], "the untrusted part stays marked off"

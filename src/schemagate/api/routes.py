@@ -144,6 +144,9 @@ async def extract(
     model: Annotated[str | None, Form()] = None,
     api_key: Annotated[str | None, Form()] = None,
     base_url: Annotated[str | None, Form()] = None,
+    # Anything the schema cannot say. Overrides what configuration holds for
+    # this table, so the playground can try wording before committing to it.
+    instructions: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
     schemas: SchemaSource = request.app.state.schemas
@@ -162,6 +165,11 @@ async def extract(
             definition,
             extractor=extractor,
             rules=settings.rules_for(definition.qualified_name),
+            instructions=(
+                instructions.strip()
+                if instructions and instructions.strip()
+                else settings.instructions_for(definition.qualified_name)
+            ),
         )
     except UnknownConnectionError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

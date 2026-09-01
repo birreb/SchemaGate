@@ -102,6 +102,7 @@ Environment variables only. No config file.
 | `SCHEMAGATE_OLLAMA_HOST` | `http://localhost:11434` | Where a local Ollama server is listening. |
 | `SCHEMAGATE_OLLAMA_MODEL` | `qwen3` | Model to extract with. |
 | `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
+| `SCHEMAGATE_INSTRUCTIONS` | `{}` | Free text passed to the model per table, for what a schema cannot say. A request may override it. |
 | `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
 
 API keys are never read by this project. Each SDK picks up its own standard variable
@@ -164,6 +165,7 @@ Multipart form.
 | `schema` | no | Postgres schema, default `public`. |
 | `provider` | no | Overrides the configured provider. Requires `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS`. |
 | `model`, `api_key`, `base_url` | no | Used with `provider`. The key is passed to the SDK and dropped: never stored, logged or returned. |
+| `instructions` | no | Guidance for the model, overriding what is configured for this table. |
 
 `200` with `status` of `ok` or `flagged`. `400` unknown connection, `404` unknown table,
 `403` per-request credentials are off, `413` upload too large, `415` unsupported file type,

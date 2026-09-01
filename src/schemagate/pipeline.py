@@ -8,7 +8,7 @@ from typing import Any
 import anyio.to_thread
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
-from schemagate.extract.base import Extractor
+from schemagate.extract.base import Extractor, compose
 from schemagate.ingest.pdf import read_pdf_async
 from schemagate.ingest.router import FileKind, detect_kind
 from schemagate.ingest.tabular import Table, align, read_csv, read_spreadsheet
@@ -53,6 +53,7 @@ async def process(
     schema: TableSchema,
     extractor: Extractor | None,
     rules: Sequence[SumRule] = (),
+    instructions: str | None = None,
 ) -> Extraction:
     """Take a file to validated rows for one table.
 
@@ -63,7 +64,7 @@ async def process(
     kind = detect_kind(data, filename)
 
     with _timed(timings, "parse"):
-        route, rows, alignment = await _read(data, kind, schema, extractor)
+        route, rows, alignment = await _read(data, kind, schema, extractor, instructions)
 
     with _timed(timings, "validate"):
         report = validate(rows, schema, rules)
@@ -80,7 +81,11 @@ async def process(
 
 
 async def _read(
-    data: bytes, kind: FileKind, schema: TableSchema, extractor: Extractor | None
+    data: bytes,
+    kind: FileKind,
+    schema: TableSchema,
+    extractor: Extractor | None,
+    instructions: str | None = None,
 ) -> tuple[Route, tuple[dict[str, str | None], ...], tuple[tuple[str, ...], tuple[str, ...]]]:
     if kind in {FileKind.CSV, FileKind.SPREADSHEET}:
         table = await _read_table(data, kind)
@@ -94,7 +99,8 @@ async def _read(
                 "This PDF has no readable text layer. Scanned documents need the OCR or "
                 "vision route, which is not built yet."
             )
-        return Route.NATIVE_PDF, await _ask(extractor, parsed.markdown, schema), ((), ())
+        rows = await _ask(extractor, parsed.markdown, schema, instructions)
+        return Route.NATIVE_PDF, rows, ((), ())
 
     raise UnsupportedFileTypeError(
         f"{kind.value} uploads need the vision route, which is not built yet."
@@ -112,7 +118,10 @@ async def _read_table(data: bytes, kind: FileKind) -> Table:
 
 
 async def _ask(
-    extractor: Extractor | None, document: str, schema: TableSchema
+    extractor: Extractor | None,
+    document: str,
+    schema: TableSchema,
+    instructions: str | None = None,
 ) -> tuple[dict[str, str | None], ...]:
     if extractor is None:
         # Not the caller's mistake. The file type is supported and they could
@@ -123,7 +132,7 @@ async def _ask(
         )
 
     container = build_container_model(schema)
-    answer = await extractor.extract(document, container)
+    answer = await extractor.extract(compose(document, instructions), container)
     rows: list[dict[str, str | None]] = answer.model_dump()["rows"]
     return tuple(rows)
 

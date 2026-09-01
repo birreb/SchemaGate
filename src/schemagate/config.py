@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # {"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}
     rules: dict[str, list[SumRule]] = Field(default_factory=dict)
 
+    # Free text passed to the model alongside a document, per table. For the
+    # things a schema cannot say: which of two dates is the issue date, what
+    # a supplier's own wording means, which page to ignore.
+    instructions: dict[str, str] = Field(default_factory=dict)
+
     # Which model service to extract with. Left unset, documents that need a
     # model are refused rather than silently sent somewhere nobody asked for.
     provider: Provider | None = None
@@ -85,6 +90,10 @@ class Settings(BaseSettings):
     def rules_for(self, table: str) -> tuple[SumRule, ...]:
         """Arithmetic checks configured for a table, by qualified name."""
         return tuple(self.rules.get(table, ()))
+
+    def instructions_for(self, table: str) -> str | None:
+        """Guidance configured for a table, by qualified name."""
+        return self.instructions.get(table) or None
 
 
 def _describe(error: ValidationError) -> str:
