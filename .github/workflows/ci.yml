@@ -93,12 +93,16 @@ jobs:
         with:
           enable-cache: true
 
+      # In a virtualenv, not --system: the runner's Python is externally
+      # managed and refuses a system-wide install.
       - name: Install the core alone
-        run: uv pip install --system .
+        run: |
+          uv venv --python 3.12
+          uv pip install .
 
       - name: The library imports and runs without a server or a model
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           import asyncio
 
           from schemagate import ColumnSpec, TableSchema, process
@@ -118,7 +122,7 @@ jobs:
 
       - name: A missing extra says which extra installs it
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           from schemagate.errors import MissingDependencyError
           from schemagate.optional import require
 
@@ -148,7 +152,7 @@ jobs:
       - name: Check the metadata PyPI will read
         run: uvx twine check dist/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
