@@ -8,7 +8,7 @@ from fpdf import FPDF
 from openpyxl import Workbook
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
-from schemagate.extract.base import ModelT
+from schemagate.extract.base import Extracted, ModelT, Usage
 from schemagate.ingest.images import NormalisedImage
 from schemagate.pipeline import Route, process
 from schemagate.schema.spec import ColumnSpec, TableSchema
@@ -46,9 +46,12 @@ class StubExtractor:
 
     async def extract(
         self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
-    ) -> ModelT:
+    ) -> Extracted[ModelT]:
         self.documents.append(document)
-        return model.model_validate({"rows": self.rows})
+        return Extracted(
+            value=model.model_validate({"rows": self.rows}),
+            usage=Usage(model="stub", input_tokens=1000, output_tokens=250),
+        )
 
 
 def spreadsheet() -> bytes:
@@ -185,8 +188,20 @@ async def test_an_image_goes_to_the_model_as_an_image() -> None:
     class Watcher:
         async def extract(self, document: str, model: Any, images: Any = ()) -> Any:
             seen.append(images)
-            return model.model_validate(
-                {"rows": [{"invoice_number": "INV-9", "subtotal": "1", "tax": "1", "total": "2"}]}
+            return Extracted(
+                value=model.model_validate(
+                    {
+                        "rows": [
+                            {
+                                "invoice_number": "INV-9",
+                                "subtotal": "1",
+                                "tax": "1",
+                                "total": "2",
+                            }
+                        ]
+                    }
+                ),
+                usage=Usage(model="stub", input_tokens=1500, output_tokens=80),
             )
 
     result = await process(photograph(), "invoice.jpg", INVOICES, extractor=Watcher())

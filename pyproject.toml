@@ -5,28 +5,56 @@ description = "Extract documents into rows that match your PostgreSQL schema."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+keywords = ["postgres", "schema", "extraction", "llm", "documents", "ocr", "invoices"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Text Processing :: General",
+    "Typing :: Typed",
+]
+
+# The core is the part with no opinion about where a document comes from or
+# which model reads it: the schema compiler, the validation gate, and the
+# tabular path that never calls a model at all. Everything with a heavyweight
+# dependency behind it is an extra, so a service that reads spreadsheets into
+# Postgres does not install three model SDKs and an imaging library to do it.
 dependencies = [
-    "anthropic>=1.3.0",
-    "asyncpg>=0.31.0",
+    "anyio>=4.6",
     "charset-normalizer>=3.5.1",
-    "fastapi>=0.115",
-    "ollama>=0.6.2",
-    "openai>=3.6.0",
-    "pdf-inspector>=1.17.0",
-    "pillow>=12.3.0",
-    "pillow-heif>=1.6.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    "pypdfium2>=5.13.0",
     "python-calamine>=0.8.2",
-    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
-server = ["uvicorn[standard]>=0.32"]
+postgres = ["asyncpg>=0.31.0"]
+server = ["fastapi>=0.115", "python-multipart>=0.0.20", "uvicorn[standard]>=0.32"]
+images = ["pillow>=12.3.0", "pillow-heif>=1.6.0"]
+pdf = ["pdf-inspector>=1.17.0", "schemagate[images]"]
 # Local OCR for scanned documents. Separate because ONNX Runtime and PDFium
 # add tens of megabytes, and most deployments never see a scan.
-ocr = ["onnxruntime>=1.29"]
+ocr = ["onnxruntime>=1.29", "pypdfium2>=5.13.0", "schemagate[pdf]"]
+anthropic = ["anthropic>=1.3.0"]
+openai = ["openai>=3.6.0"]
+ollama = ["ollama>=0.6.2"]
+all = [
+    "schemagate[anthropic]",
+    "schemagate[ocr]",
+    "schemagate[ollama]",
+    "schemagate[openai]",
+    "schemagate[postgres]",
+    "schemagate[server]",
+]
+
+[project.scripts]
+schemagate = "schemagate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/birreb/SchemaGate"
+Source = "https://github.com/birreb/SchemaGate"
+Issues = "https://github.com/birreb/SchemaGate/issues"
 
 [dependency-groups]
 dev = [
@@ -34,11 +62,10 @@ dev = [
     "fpdf2>=2.8.8",
     "httpx2>=2.12",
     "mypy>=1.13",
-    "onnxruntime>=1.29.0",
     "openpyxl>=3.1.5",
-    "pypdfium2>=5.13.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
     "ruff>=0.8",
     "types-openpyxl>=3.1.5.20260827",
 ]
@@ -57,6 +84,13 @@ markers = [
     "postgres: requires a live PostgreSQL instance (set SCHEMAGATE_TEST_DSN)",
     "ocr: requires the ocr extra (onnxruntime and pypdfium2)",
 ]
+
+[tool.coverage.run]
+source = ["src/schemagate"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
 
 [tool.ruff]
 line-length = 100

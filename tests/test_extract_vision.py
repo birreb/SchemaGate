@@ -134,4 +134,4 @@ async def test_text_only_calls_are_unchanged() -> None:
 async def test_the_model_still_comes_back() -> None:
     result = await AnthropicExtractor(client=FakeAnthropic()).extract("x", Rows, images=(PIXEL,))
 
-    assert result == ANSWER
+    assert result.value == ANSWER

@@ -4,6 +4,7 @@ from typing import Any
 from fpdf import FPDF
 from openpyxl import Workbook
 
+from schemagate.extract.base import Extracted, Usage
 from schemagate.pipeline import process
 from schemagate.schema.spec import ColumnSpec, TableSchema
 
@@ -40,7 +41,10 @@ def pdf() -> bytes:
 
 class Stub:
     async def extract(self, document: str, model: Any, images: Any = ()) -> Any:
-        return model.model_validate({"rows": [{"invoice_number": "INV-9", "total": "12.50"}]})
+        return Extracted(
+            value=model.model_validate({"rows": [{"invoice_number": "INV-9", "total": "12.50"}]}),
+            usage=Usage(model="stub", input_tokens=900, output_tokens=120),
+        )
 
 
 def names(result: Any) -> list[str]:

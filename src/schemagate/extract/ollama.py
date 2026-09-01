@@ -4,7 +4,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from schemagate.errors import ExtractionError
-from schemagate.extract.base import SYSTEM_PROMPT, ModelT
+from schemagate.extract.base import SYSTEM_PROMPT, Extracted, ModelT, Usage, counted
 from schemagate.ingest.images import NormalisedImage
 
 DEFAULT_MODEL = "qwen3"
@@ -56,7 +56,7 @@ class OllamaExtractor:
         document: str,
         model: type[ModelT],
         images: Sequence[NormalisedImage] = (),
-    ) -> ModelT:
+    ) -> Extracted[ModelT]:
         schema = model.model_json_schema()
         # Ollama takes raw bytes on the message rather than a content block.
         user: dict[str, Any] = {"role": "user", "content": document}
@@ -87,10 +87,34 @@ class OllamaExtractor:
         if not content:
             raise ExtractionError(f"Model {self._model!r} returned an empty response.")
 
+        # A local model runs into the context window rather than an output
+        # limit, with the same symptom: JSON that stops mid-row. The
+        # validation error below would report that as malformed output.
+        if getattr(response, "done_reason", None) == "length":
+            raise ExtractionError(
+                f"Model {self._model!r} ran out of context mid-answer. Raise its "
+                f"context window or split the document and extract it in parts."
+            )
+
         try:
-            return model.model_validate_json(content)
+            value = model.model_validate_json(content)
         except ValidationError as error:
             raise ExtractionError(
                 f"Model {self._model!r} returned output that does not match "
                 f"{model.__name__}: {error}"
             ) from error
+
+        return Extracted(value=value, usage=_usage(response, self._model))
+
+
+def _usage(response: Any, model: str) -> Usage:
+    """Read the token counts off the response.
+
+    Local inference costs no money. The counts still explain a slow extraction
+    and make a local run comparable with a hosted one.
+    """
+    return Usage(
+        model=model,
+        input_tokens=counted(response, "prompt_eval_count"),
+        output_tokens=counted(response, "eval_count"),
+    )

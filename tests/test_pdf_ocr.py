@@ -59,7 +59,7 @@ async def test_the_pipeline_reads_a_scanned_invoice_end_to_end() -> None:
     from collections.abc import Sequence
     from typing import Any
 
-    from schemagate.extract.base import ModelT
+    from schemagate.extract.base import Extracted, ModelT, Usage
     from schemagate.ingest.images import NormalisedImage
     from schemagate.pipeline import Route, process
     from schemagate.schema.spec import ColumnSpec, TableSchema
@@ -72,10 +72,13 @@ async def test_the_pipeline_reads_a_scanned_invoice_end_to_end() -> None:
             document: str,
             model: type[ModelT],
             images: Sequence[NormalisedImage] = (),
-        ) -> ModelT:
+        ) -> Extracted[ModelT]:
             seen.append(document)
-            return model.model_validate(
-                {"rows": [{"invoice_number": "INV-2026-0147", "total": "11425.24"}]}
+            return Extracted(
+                value=model.model_validate(
+                    {"rows": [{"invoice_number": "INV-2026-0147", "total": "11425.24"}]}
+                ),
+                usage=Usage(model="stub", input_tokens=2200, output_tokens=90),
             )
 
     schema = TableSchema(
@@ -158,7 +161,7 @@ async def test_a_scan_ocr_cannot_read_is_escalated_to_vision() -> None:
     from collections.abc import Sequence
     from typing import Any
 
-    from schemagate.extract.base import ModelT
+    from schemagate.extract.base import Extracted, ModelT, Usage
     from schemagate.ingest.images import NormalisedImage
     from schemagate.pipeline import Route, process
     from schemagate.schema.spec import ColumnSpec, TableSchema
@@ -171,9 +174,12 @@ async def test_a_scan_ocr_cannot_read_is_escalated_to_vision() -> None:
             document: str,
             model: type[ModelT],
             images: Sequence[NormalisedImage] = (),
-        ) -> ModelT:
+        ) -> Extracted[ModelT]:
             seen.append((document, images))
-            return model.model_validate({"rows": [{"invoice_number": "INV-2026-0147"}]})
+            return Extracted(
+                value=model.model_validate({"rows": [{"invoice_number": "INV-2026-0147"}]}),
+                usage=Usage(model="stub", input_tokens=2600, output_tokens=40),
+            )
 
     schema = TableSchema(
         schema="public",

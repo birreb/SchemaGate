@@ -1,17 +1,39 @@
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from schemagate.errors import ExtractionError
-from schemagate.extract.base import Extractor
+from schemagate.extract.base import Extractor, Usage
 from schemagate.schema.spec import TableSchema
 
 # Keyed on the headers and the table, because the same headers against the same
 # table always mean the same thing. Supplier files repeat, so the second one
 # costs nothing.
-_answers: dict[tuple[tuple[str, ...], str], dict[str, str]] = {}
+#
+# Bounded, and oldest-first: an unbounded dict keyed on file headings grows for
+# as long as the process lives, and a service that reads whatever people upload
+# has no upper bound on distinct headings. The cap is large enough that a
+# recurring set of suppliers never falls out of it.
+MAX_REMEMBERED = 512
+
+_answers: OrderedDict[tuple[tuple[str, ...], str], dict[str, str]] = OrderedDict()
 
 NO_MATCH = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class HeaderMatch:
+    """Which heading meant which column, and what asking cost.
+
+    A CSV takes the free path and its rows never leave the machine, but working
+    out that `Fakturanr` is an invoice number is a billed model call, so it is
+    reported like any other.
+    """
+
+    aliases: dict[str, str] = field(default_factory=dict)
+    usage: tuple[Usage, ...] = ()
 
 
 def forget_mappings() -> None:
@@ -26,7 +48,7 @@ def forget_mappings() -> None:
 
 async def map_headers(
     headers: tuple[str, ...], schema: TableSchema, extractor: Extractor | None
-) -> dict[str, str]:
+) -> HeaderMatch:
     """Work out which column each header means, when the words do not match.
 
     Only the names are sent. A header called `Fakturanr` means nothing to string
@@ -35,15 +57,18 @@ async def map_headers(
     tabular path free of the document ever reaching a provider.
     """
     if extractor is None or not headers:
-        return {}
+        return HeaderMatch()
 
     columns = [column.name for column in schema.extractable]
     if not columns:
-        return {}
+        return HeaderMatch()
 
     key = (headers, schema.fingerprint)
     if key in _answers:
-        return _answers[key]
+        _answers.move_to_end(key)
+        # No usage: a remembered answer is the saving, and reporting the
+        # tokens of the call that filled the cache would bill it twice.
+        return HeaderMatch(aliases=_answers[key])
 
     model = _mapping_model(columns)
     try:
@@ -51,11 +76,13 @@ async def map_headers(
     except ExtractionError:
         # Falling back to no mapping loses nothing: the unmatched headers are
         # reported either way, and a wrong mapping is worse than none.
-        return {}
+        return HeaderMatch()
 
-    mapping = _clean(answer, headers, columns)
+    mapping = _clean(answer.value, headers, columns)
     _answers[key] = mapping
-    return mapping
+    while len(_answers) > MAX_REMEMBERED:
+        _answers.popitem(last=False)
+    return HeaderMatch(aliases=mapping, usage=(answer.usage,))
 
 
 def _question(headers: tuple[str, ...], schema: TableSchema) -> str:

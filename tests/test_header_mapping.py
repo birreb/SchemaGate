@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from schemagate.extract.base import ModelT
+from schemagate.extract.base import Extracted, ModelT, Usage
 from schemagate.ingest.headers import forget_mappings, map_headers
 from schemagate.ingest.images import NormalisedImage
 from schemagate.ingest.tabular import Table
@@ -45,10 +45,13 @@ class Mapper:
 
     async def extract(
         self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
-    ) -> ModelT:
+    ) -> Extracted[ModelT]:
         self.shown.append(document)
-        return model.model_validate(
-            {"pairs": [{"header": h, "column": c} for h, c in self.pairs.items()]}
+        return Extracted(
+            value=model.model_validate(
+                {"pairs": [{"header": h, "column": c} for h, c in self.pairs.items()]}
+            ),
+            usage=Usage(model="mapper", input_tokens=60, output_tokens=25),
         )
 
 
@@ -57,7 +60,7 @@ async def test_headers_in_another_language_are_mapped() -> None:
 
     mapping = await map_headers(SWEDISH.headers, INVOICES, mapper)
 
-    assert mapping == {
+    assert mapping.aliases == {
         "Fakturanr": "invoice_number",
         "Leverantor": "supplier",
         "Att betala": "total",
@@ -102,7 +105,7 @@ async def test_a_heading_the_file_does_not_have_is_discarded() -> None:
 
     mapping = await map_headers(SWEDISH.headers, INVOICES, mapper)
 
-    assert mapping == {"Fakturanr": "invoice_number"}, (
+    assert mapping.aliases == {"Fakturanr": "invoice_number"}, (
         "a mapping from a heading that is not in the file cannot be acted on"
     )
 
@@ -112,7 +115,7 @@ async def test_two_headers_cannot_claim_the_same_column() -> None:
 
     mapping = await map_headers(SWEDISH.headers, INVOICES, mapper)
 
-    assert list(mapping.values()) == ["invoice_number"], (
+    assert list(mapping.aliases.values()) == ["invoice_number"], (
         "the second claim is ambiguous, and guessing which wins would be worse "
         "than leaving it unmapped"
     )
@@ -131,7 +134,41 @@ async def test_asking_twice_for_the_same_file_shape_only_asks_once() -> None:
 
 
 async def test_nothing_is_asked_when_there_is_no_model() -> None:
-    assert await map_headers(SWEDISH.headers, INVOICES, None) == {}
+    assert (await map_headers(SWEDISH.headers, INVOICES, None)).aliases == {}
+
+
+async def test_the_mapping_call_reports_what_it_cost() -> None:
+    """The call nobody expects is the one worth reporting."""
+    mapper = Mapper()
+
+    mapping = await map_headers(SWEDISH.headers, INVOICES, mapper)
+
+    assert [usage.model for usage in mapping.usage] == ["mapper"]
+    assert mapping.usage[0].input_tokens == 60
+
+
+async def test_a_remembered_mapping_costs_nothing() -> None:
+    mapper = Mapper()
+
+    await map_headers(SWEDISH.headers, INVOICES, mapper)
+    again = await map_headers(SWEDISH.headers, INVOICES, mapper)
+
+    assert again.aliases, "the answer is still there"
+    assert again.usage == (), (
+        "billing a cached answer for the call that filled the cache would "
+        "report the same tokens twice"
+    )
+
+
+async def test_the_remembered_answers_are_bounded() -> None:
+    """A service reads whatever people upload, so distinct headings have no ceiling."""
+    from schemagate.ingest.headers import MAX_REMEMBERED, _answers
+
+    mapper = Mapper()
+    for index in range(MAX_REMEMBERED + 20):
+        await map_headers((f"Kolumn{index}", "Leverantor"), INVOICES, mapper)
+
+    assert len(_answers) <= MAX_REMEMBERED
 
 
 async def test_the_pipeline_maps_headings_it_could_not_match() -> None:

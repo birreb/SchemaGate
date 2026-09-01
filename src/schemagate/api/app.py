@@ -1,15 +1,15 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI
 
 from schemagate import __version__
 from schemagate.api.logging import record_requests
 from schemagate.api.routes import SchemaSource, router
+from schemagate.api.security import RateLimiter
 from schemagate.config import Settings
-from schemagate.errors import ConfigurationError
 from schemagate.extract.base import Extractor
+from schemagate.extract.factory import build_extractor, make_extractor, make_model_client
 
 
 def create_app(
@@ -27,142 +27,79 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        owned = None
-        if app.state.schemas is None:
-            from schemagate.db.pool import PoolSchemas
-
-            owned = PoolSchemas(resolved)
-            app.state.schemas = owned
-
-        if app.state.extractor is None and resolved.provider is not None:
-            app.state.extractor = build_extractor(resolved)
-
         try:
             yield
         finally:
-            if owned is not None:
-                await owned.close()
+            await shutdown(app)
 
     app = FastAPI(title="SchemaGate", version=__version__, lifespan=lifespan)
     app.middleware("http")(record_requests)
-    app.state.settings = resolved
-    app.state.schemas = schemas
-    app.state.extractor = extractor
-    app.include_router(router)
+    install(app, settings=resolved, schemas=schemas, extractor=extractor)
     return app
 
 
-def build_extractor(settings: Settings) -> Extractor:
-    """Construct the model client named in configuration.
+def install(
+    app: FastAPI,
+    settings: Settings | None = None,
+    schemas: SchemaSource | None = None,
+    extractor: Extractor | None = None,
+) -> None:
+    """Add SchemaGate's endpoints to an application you already have.
 
-    API keys are never read here. Each SDK picks up its own standard variable
-    (ANTHROPIC_API_KEY, OPENAI_API_KEY), which keeps the credential out of this
-    codebase entirely.
+    Use this rather than `app.mount`. Starlette does not run a mounted
+    application's lifespan, so a mounted copy never builds its connection pool
+    and every request fails on a state attribute that is still None. This
+    includes the router and sets the state directly, and the pool is built on
+    first use, so a host that never wires a lifespan still works.
+
+    Call `shutdown(app)` from your own lifespan to close the pools. Skipping it
+    leaks connections at exit and nothing else.
     """
-    return make_extractor(
-        provider=settings.provider or "ollama",
-        model=_configured_model(settings),
-        base_url=settings.openai_base_url,
-        ollama_host=settings.ollama_host,
-        timeout=settings.model_timeout_seconds,
-    )
+    resolved = settings or Settings()
+    app.state.settings = resolved
+    app.state.schemas = schemas
+    app.state.extractor = extractor
+    app.state.header_extractor = None
+    app.state.limiter = RateLimiter(resolved.rate_limit_per_minute)
+    # Bounds the work in flight rather than the arrival rate. Each document
+    # holds its upload, its rendered pages and its answer in memory at once.
+    # Built on the first request rather than here: an anyio semaphore and the
+    # thread limiter both belong to a running event loop, and this function is
+    # called while building the application, before there is one.
+    app.state.gate = None
+    app.state.owns_schemas = schemas is None
+
+    if extractor is None and resolved.provider is not None:
+        app.state.extractor = build_extractor(resolved)
+    if resolved.header_model and app.state.extractor is not None:
+        app.state.header_extractor = build_extractor(resolved, model=resolved.header_model)
+
+    app.include_router(router)
 
 
-def _configured_model(settings: Settings) -> str | None:
-    if settings.provider == "anthropic":
-        return settings.anthropic_model
-    if settings.provider in {"openai", "openai_compatible"}:
-        return settings.openai_model
-    return settings.ollama_model
+async def shutdown(app: FastAPI) -> None:
+    """Close anything this application built for itself.
 
-
-def make_extractor(
-    provider: str,
-    model: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    ollama_host: str = "http://localhost:11434",
-    timeout: float = 120.0,
-) -> Extractor:
-    """Build one extractor from plain values.
-
-    Shared by configuration and by a request that carries its own credentials,
-    so both paths construct the client the same way. `api_key` is passed
-    straight to the SDK and is never stored, logged, or returned.
+    A pool handed in by the caller is left alone, since its lifetime belongs to
+    whoever created it.
     """
-    if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-
-        from schemagate.config import DEFAULT_ANTHROPIC_MODEL
-        from schemagate.extract.anthropic import AnthropicExtractor
-
-        return AnthropicExtractor(
-            client=(
-                AsyncAnthropic(api_key=api_key, timeout=timeout)
-                if api_key
-                else AsyncAnthropic(timeout=timeout)
-            ),
-            model=model or DEFAULT_ANTHROPIC_MODEL,
-        )
-
-    if provider in {"openai", "openai_compatible"}:
-        from openai import AsyncOpenAI
-
-        from schemagate.extract.openai import OpenAIExtractor
-
-        if not model:
-            raise ConfigurationError(
-                "This provider needs a model named. OpenAI model names change "
-                "often, so one is never guessed."
-            )
-        if provider == "openai_compatible" and not base_url:
-            raise ConfigurationError(
-                "An OpenAI-compatible provider needs a base_url, since that is "
-                "the only thing distinguishing it from OpenAI itself."
-            )
-        return OpenAIExtractor(
-            client=AsyncOpenAI(api_key=api_key or "unused", base_url=base_url, timeout=timeout),
-            model=model,
-        )
-
-    if provider != "ollama":
-        raise ConfigurationError(
-            f"Unknown provider {provider!r}. Choose anthropic, openai, openai_compatible or ollama."
-        )
-
-    from ollama import AsyncClient
-
-    from schemagate.config import DEFAULT_OLLAMA_MODEL
-    from schemagate.extract.ollama import OllamaExtractor
-
-    return OllamaExtractor(
-        client=AsyncClient(host=base_url or ollama_host, timeout=timeout),
-        model=model or DEFAULT_OLLAMA_MODEL,
-    )
+    schemas = getattr(app.state, "schemas", None)
+    if schemas is not None and getattr(app.state, "owns_schemas", False):
+        closer = getattr(schemas, "close", None)
+        if closer is not None:
+            await closer()
+        app.state.schemas = None
 
 
-def make_model_client(
-    provider: str,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    ollama_host: str = "http://localhost:11434",
-) -> Any:
-    """Build the raw SDK client used only to enumerate models."""
-    if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-
-        return AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic()
-
-    if provider in {"openai", "openai_compatible"}:
-        from openai import AsyncOpenAI
-
-        return AsyncOpenAI(api_key=api_key or "unused", base_url=base_url)
-
-    if provider == "ollama":
-        from ollama import AsyncClient
-
-        return AsyncClient(host=base_url or ollama_host)
-
-    raise ConfigurationError(
-        f"Unknown provider {provider!r}. Choose anthropic, openai, openai_compatible or ollama."
-    )
+# Re-exported: these used to live here, and `from schemagate.api.app import
+# make_extractor` is what the request path and anyone reading the old module
+# still writes. Building a model client is not an HTTP concern, so the code
+# moved to `schemagate.extract.factory`, where it can be used without FastAPI.
+__all__ = [
+    "build_extractor",
+    "create_app",
+    "install",
+    "make_extractor",
+    "make_model_client",
+    "shutdown",
+]

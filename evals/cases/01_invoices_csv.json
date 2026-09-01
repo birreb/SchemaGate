@@ -1,0 +1,123 @@
+{
+  "name": "invoices-csv",
+  "why": "The free path. No model is called at all, so this case is the control: any cost reported here is a bug, not a price.",
+  "document": "examples/invoices.csv",
+  "table": {
+    "schema": "public",
+    "name": "invoices",
+    "columns": [
+      {
+        "name": "id",
+        "data_type": "int8",
+        "nullable": false,
+        "ordinal": 1,
+        "is_identity": true
+      },
+      {
+        "name": "invoice_number",
+        "data_type": "varchar",
+        "nullable": false,
+        "ordinal": 2,
+        "max_length": 32,
+        "description": "The number the supplier assigned, exactly as printed."
+      },
+      {
+        "name": "supplier",
+        "data_type": "text",
+        "nullable": false,
+        "ordinal": 3,
+        "description": "Legal name of the company that issued the invoice."
+      },
+      {
+        "name": "vat_id",
+        "data_type": "text",
+        "nullable": true,
+        "ordinal": 4,
+        "description": "Seller VAT number, not the buyer. Null when the invoice does not carry one."
+      },
+      {
+        "name": "status",
+        "data_type": "invoice_status",
+        "nullable": false,
+        "ordinal": 5,
+        "enum_labels": [
+          "draft",
+          "sent",
+          "paid",
+          "void"
+        ],
+        "has_default": true,
+        "default_expr": "'draft'::invoice_status"
+      },
+      {
+        "name": "subtotal",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 6,
+        "numeric_scale": 2
+      },
+      {
+        "name": "tax",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 7,
+        "numeric_scale": 2
+      },
+      {
+        "name": "total",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 8,
+        "numeric_scale": 2
+      },
+      {
+        "name": "issued_on",
+        "data_type": "date",
+        "nullable": false,
+        "ordinal": 9
+      }
+    ]
+  },
+  "rules": [
+    {
+      "terms": [
+        "subtotal",
+        "tax"
+      ],
+      "equals": "total"
+    }
+  ],
+  "expected_flags": 0,
+  "expected": [
+    {
+      "invoice_number": "INV-1041",
+      "supplier": "Acme Components Ltd",
+      "vat_id": "GB123456789",
+      "status": "sent",
+      "subtotal": "1240.00",
+      "tax": "310.00",
+      "total": "1550.00",
+      "issued_on": "2026-01-05"
+    },
+    {
+      "invoice_number": "INV-1042",
+      "supplier": "Nordvik Metall AB",
+      "vat_id": "SE556677889901",
+      "status": "paid",
+      "subtotal": "890.00",
+      "tax": "222.50",
+      "total": "1112.50",
+      "issued_on": "2026-01-07"
+    },
+    {
+      "invoice_number": "INV-1043",
+      "supplier": "Bauer Werkzeuge GmbH",
+      "vat_id": null,
+      "status": "draft",
+      "subtotal": "410.00",
+      "tax": "102.50",
+      "total": "512.50",
+      "issued_on": "2026-01-11"
+    }
+  ]
+}

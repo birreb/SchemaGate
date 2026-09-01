@@ -1,11 +1,26 @@
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Protocol
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+import anyio
+import anyio.to_thread
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse
 
 from schemagate.api.logging import note
+from schemagate.api.security import authorise, presented
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
 from schemagate.errors import (
@@ -14,11 +29,15 @@ from schemagate.errors import (
     ExtractionError,
     ExtractorNotConfiguredError,
     MalformedDocumentError,
+    MissingDependencyError,
+    NotAuthorisedError,
+    RateLimitedError,
     TableNotFoundError,
     UnknownConnectionError,
     UnsupportedColumnTypeError,
     UnsupportedFileTypeError,
 )
+from schemagate.extract.cost import Spend
 from schemagate.pipeline import process
 from schemagate.schema.spec import TableRef, TableSchema
 
@@ -35,6 +54,8 @@ REQUEST_CREDENTIALS_OFF = (
     "SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS=true."
 )
 
+ANONYMOUS = "anonymous"
+
 
 class SchemaSource(Protocol):
     """Where table definitions come from."""
@@ -42,6 +63,86 @@ class SchemaSource(Protocol):
     async def fetch(self, connection: str, schema: str, table: str) -> TableSchema: ...
 
     async def tables(self, connection: str) -> tuple[TableRef, ...]: ...
+
+
+async def caller(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header()] = None,
+) -> str:
+    """Authorise the request and name who made it.
+
+    Both together, since the key that authorises is also what the rate limit is
+    counted against. With no keys configured, the client address is used.
+    """
+    settings: Settings = request.app.state.settings
+    key = presented(authorization, x_api_key)
+
+    try:
+        authorise(settings.accepts(key))
+    except NotAuthorisedError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+
+    who = key or (request.client.host if request.client else ANONYMOUS)
+    limiter = getattr(request.app.state, "limiter", None)
+    if limiter is not None:
+        try:
+            limiter.check(who)
+        except RateLimitedError as error:
+            raise HTTPException(
+                status_code=429, detail=str(error), headers={"retry-after": "60"}
+            ) from error
+    return who
+
+
+def _schemas(request: Request) -> SchemaSource:
+    """The table definition source, built on first use if nobody supplied one.
+
+    Built here rather than at startup so that including this router in an
+    application that never wires a lifespan still works. That is the ordinary
+    case when someone embeds this rather than running it.
+    """
+    existing: SchemaSource | None = getattr(request.app.state, "schemas", None)
+    if existing is not None:
+        return existing
+
+    from schemagate.db.pool import PoolSchemas
+
+    built = PoolSchemas(request.app.state.settings)
+    request.app.state.schemas = built
+    request.app.state.owns_schemas = True
+    return built
+
+
+@asynccontextmanager
+async def _in_flight(request: Request) -> AsyncIterator[None]:
+    """Hold one of the slots for work that is actually expensive.
+
+    Applied to extraction alone. Listing tables is a catalog query and does not
+    need to queue behind a scanned PDF.
+
+    The semaphore is built here, on the first request, because it belongs to a
+    running event loop and the application is built before there is one.
+    """
+    settings: Settings = request.app.state.settings
+    if settings.max_concurrent_extractions <= 0:
+        yield
+        return
+
+    gate = getattr(request.app.state, "gate", None)
+    if gate is None:
+        gate = anyio.Semaphore(settings.max_concurrent_extractions)
+        request.app.state.gate = gate
+        # The default thread pool is forty workers, which is a sensible number
+        # for waiting on files and a poor one for OCR: those threads are CPU
+        # bound, and forty of them on eight cores finish every request more
+        # slowly than eight would finish the first eight. Matched to the work
+        # actually allowed in, and never lowered below what anyio chose.
+        threads = anyio.to_thread.current_default_thread_limiter()
+        threads.total_tokens = max(threads.total_tokens, settings.max_concurrent_extractions)
+
+    async with gate:
+        yield
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -57,7 +158,9 @@ async def playground() -> str:
 
 
 @router.get("/v1/connections")
-async def connections(request: Request) -> dict[str, list[str]]:
+async def connections(
+    request: Request, who: Annotated[str, Depends(caller)]
+) -> dict[str, list[str]]:
     """The names a caller may use, and only the names.
 
     What each one points at stays on the server. Knowing a connection is called
@@ -68,20 +171,25 @@ async def connections(request: Request) -> dict[str, list[str]]:
 
 
 @router.get("/v1/tables")
-async def tables(request: Request, connection: Annotated[str, Query()]) -> dict[str, Any]:
+async def tables(
+    request: Request,
+    connection: Annotated[str, Query()],
+    who: Annotated[str, Depends(caller)],
+) -> dict[str, Any]:
     """Every relation the connected role can read.
 
     Offered so a caller can choose rather than type a name and find out later
     whether it exists.
     """
     settings: Settings = request.app.state.settings
-    schemas: SchemaSource = request.app.state.schemas
 
     try:
         settings.dsn(connection)
-        found = await schemas.tables(connection)
+        found = await _schemas(request).tables(connection)
     except UnknownConnectionError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except MissingDependencyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except DatabaseUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -92,6 +200,7 @@ async def tables(request: Request, connection: Annotated[str, Query()]) -> dict[
 async def models(
     request: Request,
     provider: Annotated[str, Form()],
+    who: Annotated[str, Depends(caller)],
     api_key: Annotated[str | None, Form()] = None,
     base_url: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
@@ -117,6 +226,8 @@ async def models(
             ollama_host=settings.ollama_host,
         )
         listing = await list_models(provider, client)
+    except MissingDependencyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except (ConfigurationError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -144,6 +255,7 @@ async def extract(
     file: Annotated[UploadFile, File()],
     connection: Annotated[str, Form()],
     table: Annotated[str, Form()],
+    who: Annotated[str, Depends(caller)],
     # `schema` is the right word on the wire but shadows a Pydantic attribute,
     # so the field keeps its name and the parameter takes another.
     namespace: Annotated[str, Form(alias="schema")] = "public",
@@ -158,7 +270,6 @@ async def extract(
     instructions: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
-    schemas: SchemaSource = request.app.state.schemas
 
     data = await _read_upload(file, settings.max_upload_bytes)
     extractor = _choose_extractor(request, settings, provider, model, api_key, base_url)
@@ -167,21 +278,29 @@ async def extract(
         # Resolving the connection by name is also what proves the caller is
         # allowed to use it. A connection string never crosses the wire.
         settings.dsn(connection)
+        schemas = _schemas(request)
         discovered = time.perf_counter()
         definition = await schemas.fetch(connection, namespace, table)
         discovery_ms = int((time.perf_counter() - discovered) * 1000)
-        result = await process(
-            data,
-            file.filename,
-            definition,
-            extractor=extractor,
-            rules=settings.rules_for(definition.qualified_name),
-            instructions=(
-                instructions.strip()
-                if instructions and instructions.strip()
-                else settings.instructions_for(definition.qualified_name)
-            ),
-        )
+        async with _in_flight(request):
+            result = await process(
+                data,
+                file.filename,
+                definition,
+                extractor=extractor,
+                rules=settings.rules_for(definition.qualified_name),
+                instructions=(
+                    instructions.strip()
+                    if instructions and instructions.strip()
+                    else settings.instructions_for(definition.qualified_name)
+                ),
+                header_extractor=(
+                    getattr(request.app.state, "header_extractor", None)
+                    if provider is None
+                    else None
+                ),
+                prices=settings.prices,
+            )
     except UnknownConnectionError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except ConfigurationError as error:
@@ -192,7 +311,11 @@ async def extract(
         raise HTTPException(status_code=415, detail=str(error)) from error
     except (MalformedDocumentError, UnsupportedColumnTypeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except (DatabaseUnavailableError, ExtractorNotConfiguredError) as error:
+    except (
+        DatabaseUnavailableError,
+        ExtractorNotConfiguredError,
+        MissingDependencyError,
+    ) as error:
         # Neither the caller's mistake nor a defect in us: something the
         # deployment depends on is missing or down.
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -206,6 +329,11 @@ async def extract(
         rows=len(result.rows),
         failures=len(result.failures),
         outcome=result.status,
+        # What it cost, on the line an operator already reads.
+        calls=result.spend.calls,
+        input_tokens=result.spend.input_tokens + result.spend.cached_input_tokens,
+        output_tokens=result.spend.output_tokens,
+        cost_usd=None if result.spend.cost_usd is None else str(result.spend.cost_usd),
     )
 
     return {
@@ -240,9 +368,37 @@ async def extract(
                 for stage in result.stages
             ],
         ],
+        "usage": _usage_body(result.spend),
         "unmatched_headers": list(result.unmatched_headers),
         "missing_columns": list(result.missing_columns),
         "timings_ms": result.timings_ms,
+    }
+
+
+def _usage_body(spend: Spend) -> dict[str, Any]:
+    """What the document cost, per model and in total.
+
+    Money is a string for the same reason every other exact number here is: a
+    JSON number is a float in every client parser. Null means at least one
+    model that ran has no configured price.
+    """
+    return {
+        "calls": spend.calls,
+        "input_tokens": spend.input_tokens,
+        "cached_input_tokens": spend.cached_input_tokens,
+        "output_tokens": spend.output_tokens,
+        "total_tokens": spend.total_tokens,
+        "cost_usd": None if spend.cost_usd is None else str(spend.cost_usd),
+        "by_model": [
+            {
+                "model": usage.model,
+                "calls": usage.calls,
+                "input_tokens": usage.input_tokens,
+                "cached_input_tokens": usage.cached_input_tokens,
+                "output_tokens": usage.output_tokens,
+            }
+            for usage in spend.by_model
+        ],
     }
 
 
@@ -276,7 +432,10 @@ def _choose_extractor(
             api_key=api_key or None,
             base_url=base_url or None,
             ollama_host=settings.ollama_host,
+            effort=settings.effort,
         )
+    except MissingDependencyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except ConfigurationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

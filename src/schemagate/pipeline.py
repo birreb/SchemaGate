@@ -1,5 +1,5 @@
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -8,7 +8,8 @@ from typing import Any
 import anyio.to_thread
 
 from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
-from schemagate.extract.base import Extractor, compose
+from schemagate.extract.base import Extracted, Extractor, Usage, compose
+from schemagate.extract.cost import Price, Spend, tally
 from schemagate.ingest.headers import map_headers
 from schemagate.ingest.images import NormalisedImage, normalise
 from schemagate.ingest.pdf import read_pdf_async, render_pages
@@ -44,7 +45,7 @@ class Stage:
 
 @dataclass(frozen=True, slots=True)
 class Extraction:
-    """What came out of a document, and everything that did not hold."""
+    """What came out of a document, everything that did not hold, and the bill."""
 
     table: str
     route: Route
@@ -54,6 +55,7 @@ class Extraction:
     missing_columns: tuple[str, ...] = ()
     timings_ms: dict[str, int] = field(default_factory=dict)
     stages: tuple[Stage, ...] = ()
+    spend: Spend = field(default_factory=Spend)
 
     @property
     def status(self) -> str:
@@ -72,18 +74,35 @@ async def process(
     extractor: Extractor | None,
     rules: Sequence[SumRule] = (),
     instructions: str | None = None,
+    header_extractor: Extractor | None = None,
+    prices: Mapping[str, Price] | None = None,
 ) -> Extraction:
     """Take a file to validated rows for one table.
 
-    Deterministic all the way through. The only step that involves a model is
-    the one for documents that have no data grid to read.
+    Deterministic all the way through. The only steps that involve a model are
+    the one for documents that have no data grid to read, and matching a
+    heading whose spelling says nothing.
+
+    `header_extractor` runs the heading match on a different model. It compares
+    two short lists of names, which does not need the model chosen for reading
+    scans.
     """
     timings: dict[str, int] = {}
     steps = _Steps()
+    spent: list[Usage] = []
     kind = detect_kind(data, filename)
 
     with _timed(timings, "parse"):
-        route, rows, alignment = await _read(data, kind, schema, extractor, instructions, steps)
+        route, rows, alignment = await _read(
+            data,
+            kind,
+            schema,
+            extractor,
+            instructions,
+            steps,
+            spent,
+            header_extractor or extractor,
+        )
 
     with _timed(timings, "validate"), steps.step("check") as note:
         report = validate(rows, schema, rules)
@@ -98,6 +117,7 @@ async def process(
         missing_columns=alignment[1],
         timings_ms=timings,
         stages=tuple(steps.recorded),
+        spend=tally(spent, prices),
     )
 
 
@@ -108,6 +128,19 @@ def _describe_check(rows: Sequence[Any], failures: Sequence[Failure]) -> str:
     kinds = sorted({failure.rule for failure in failures})
     plural = "" if len(failures) == 1 else "s"
     return f"{counted}, {len(failures)} failure{plural}: {', '.join(kinds)}"
+
+
+def _describe_usage(usages: Sequence[Usage]) -> str:
+    """What a step cost, in the same sentence that says what it did.
+
+    Tokens rather than money, since a stage detail describes one step and the
+    priced total belongs with the other totals.
+    """
+    if not usages:
+        return ""
+    spend = tally(usages)
+    sent = spend.input_tokens + spend.cached_input_tokens
+    return f", {sent} tokens in and {spend.output_tokens} out"
 
 
 @dataclass
@@ -139,8 +172,11 @@ async def _read(
     extractor: Extractor | None,
     instructions: str | None = None,
     steps: "_Steps | None" = None,
+    spent: "list[Usage] | None" = None,
+    header_extractor: Extractor | None = None,
 ) -> tuple[Route, tuple[dict[str, str | None], ...], tuple[tuple[str, ...], tuple[str, ...]]]:
     steps = steps or _Steps()
+    spent = spent if spent is not None else []
 
     if kind in {FileKind.CSV, FileKind.SPREADSHEET}:
         with steps.step("read") as note:
@@ -152,16 +188,19 @@ async def _read(
             aligned = align(table, schema)
 
             # Headings that do not match by spelling may still mean a column:
-            # `Fakturanr` is an invoice number and no amount of string handling
+            # Fakturanr is an invoice number and no amount of string handling
             # will say so. Only the names are sent, never the rows, so the data
             # still never reaches a provider.
-            aliases: dict[str, str] = {}
+            matched = None
             if aligned.unmatched_headers and aligned.missing_columns:
-                aliases = await map_headers(aligned.unmatched_headers, schema, extractor)
-                if aliases:
-                    aligned = align(table, schema, aliases)
+                matched = await map_headers(aligned.unmatched_headers, schema, header_extractor)
+                spent.extend(matched.usage)
+                if matched.aliases:
+                    aligned = align(table, schema, matched.aliases)
 
+            aliases = matched.aliases if matched else {}
             note.detail = _describe_match(aligned, schema, aliases)
+            note.detail += _describe_usage(matched.usage if matched else ())
 
         return Route.TABULAR, aligned.rows, (aligned.unmatched_headers, aligned.missing_columns)
 
@@ -188,18 +227,24 @@ async def _read(
             images = await anyio.to_thread.run_sync(render_pages, data, parsed.pages_for_vision)
             if images:
                 with steps.step("extract") as note:
-                    rows = await _ask(extractor, "", schema, instructions, images)
+                    answer = await _ask(extractor, "", schema, instructions, images)
+                    spent.append(answer.usage)
+                    rows = _rows(answer)
                     note.detail = (
                         f"OCR could not read {len(images)} page"
                         f"{'' if len(images) == 1 else 's'}, so the page itself went to a "
                         f"vision model. {len(rows)} rows returned"
                     )
+                    note.detail += _describe_usage((answer.usage,))
                 return Route.VISION, rows, ((), ())
 
         route = Route.OCR_PDF if parsed.route == "ocr" else Route.NATIVE_PDF
         with steps.step("extract") as note:
-            rows = await _ask(extractor, parsed.markdown, schema, instructions)
+            answer = await _ask(extractor, parsed.markdown, schema, instructions)
+            spent.append(answer.usage)
+            rows = _rows(answer)
             note.detail = _describe_extract(len(rows), schema, "text")
+            note.detail += _describe_usage((answer.usage,))
         return route, rows, ((), ())
 
     if kind is FileKind.IMAGE:
@@ -210,8 +255,11 @@ async def _read(
             note.detail = f"Image, normalised to {image.width} by {image.height}"
 
         with steps.step("extract") as note:
-            rows = await _ask(extractor, "", schema, instructions, (image,))
+            answer = await _ask(extractor, "", schema, instructions, (image,))
+            spent.append(answer.usage)
+            rows = _rows(answer)
             note.detail = _describe_extract(len(rows), schema, "the image")
+            note.detail += _describe_usage((answer.usage,))
         return Route.VISION, rows, ((), ())
 
     raise UnsupportedFileTypeError(f"{kind.value} uploads are not supported.")
@@ -253,13 +301,18 @@ async def _read_table(data: bytes, kind: FileKind) -> Table:
     return await anyio.to_thread.run_sync(reader, data)
 
 
+def _rows(answer: Extracted[Any]) -> tuple[dict[str, str | None], ...]:
+    rows: list[dict[str, str | None]] = answer.value.model_dump()["rows"]
+    return tuple(rows)
+
+
 async def _ask(
     extractor: Extractor | None,
     document: str,
     schema: TableSchema,
     instructions: str | None = None,
     images: Sequence[NormalisedImage] = (),
-) -> tuple[dict[str, str | None], ...]:
+) -> Extracted[Any]:
     if extractor is None:
         # Not the caller's mistake. The file type is supported and they could
         # not have known the server has no model behind it.
@@ -269,9 +322,7 @@ async def _ask(
         )
 
     container = build_container_model(schema)
-    answer = await extractor.extract(compose(document, instructions), container, images)
-    rows: list[dict[str, str | None]] = answer.model_dump()["rows"]
-    return tuple(rows)
+    return await extractor.extract(compose(document, instructions), container, images)
 
 
 @contextmanager

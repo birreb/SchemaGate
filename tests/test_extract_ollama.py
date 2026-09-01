@@ -49,8 +49,8 @@ def extractor(client: FakeClient) -> OllamaExtractor:
 async def test_returns_a_validated_model() -> None:
     result = await extractor(FakeClient()).extract("Invoice INV-1 total 10.00", Rows)
 
-    assert isinstance(result, Rows)
-    assert result.rows[0].invoice_number == "INV-1"
+    assert isinstance(result.value, Rows)
+    assert result.value.rows[0].invoice_number == "INV-1"
 
 
 async def test_the_schema_is_sent_as_the_output_format() -> None:

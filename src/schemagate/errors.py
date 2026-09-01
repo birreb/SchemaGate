@@ -36,3 +36,15 @@ class DatabaseUnavailableError(SchemaGateError):
 
 class ExtractorNotConfiguredError(SchemaGateError):
     """A document needs a model and no model server is configured."""
+
+
+class MissingDependencyError(SchemaGateError):
+    """A route needs an optional dependency that this install does not have."""
+
+
+class NotAuthorisedError(SchemaGateError):
+    """A caller presented no key, or one that is not configured."""
+
+
+class RateLimitedError(SchemaGateError):
+    """A caller has spent its allowance for the current window."""

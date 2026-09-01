@@ -8,10 +8,10 @@ from functools import cache
 from typing import Any
 
 import anyio.to_thread
-import pdf_inspector
 
 from schemagate.errors import MalformedDocumentError
 from schemagate.ingest.images import NormalisedImage, normalise
+from schemagate.optional import require
 
 # Classifications where the page carries no recoverable text layer.
 IMAGE_TYPES = frozenset({"scanned", "image_based"})
@@ -93,8 +93,9 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
 
     Blocking and CPU bound. Call `read_pdf_async` from request handlers.
     """
+    parser = require("pdf_inspector")
     try:
-        result = pdf_inspector.process_pdf_bytes(data)
+        result = parser.process_pdf_bytes(data)
     except ValueError as error:
         raise MalformedDocumentError(f"The file is not a readable PDF: {error}") from error
 
@@ -158,8 +159,9 @@ def _run_ocr(data: bytes) -> tuple[str, tuple[int, ...]] | None:
     single wrong character, so ignoring the signal would hand that to a model as
     the document and get a confident, invented answer back.
     """
+    parser = require("pdf_inspector")
     try:
-        result = pdf_inspector.process_pdf_with_ocr_bytes(data, mode="auto")
+        result = parser.process_pdf_with_ocr_bytes(data, mode="auto")
     except (ValueError, OSError, RuntimeError):
         return None
     escalate = tuple(getattr(result, "pages_recommending_hosted", ()) or ())
@@ -173,10 +175,10 @@ def render_pages(data: bytes, pages: Sequence[int]) -> tuple[NormalisedImage, ..
     better known choice for this and is AGPL, which would make this project
     AGPL too.
     """
-    import pypdfium2
+    pdfium = require("pypdfium2")
 
     rendered: list[NormalisedImage] = []
-    document = pypdfium2.PdfDocument(data)
+    document = pdfium.PdfDocument(data)
     try:
         for number in pages:
             index = number - 1

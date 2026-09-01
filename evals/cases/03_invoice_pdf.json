@@ -1,0 +1,94 @@
+{
+  "name": "invoice-pdf",
+  "why": "A real one page PDF with a text layer, a discount line between subtotal and total, a date written as words, and a buyer VAT number next to the seller's. This is the case that separates models.",
+  "document": "examples/sample_invoice_INV20260147.pdf",
+  "table": {
+    "schema": "public",
+    "name": "invoices",
+    "columns": [
+      {
+        "name": "id",
+        "data_type": "int8",
+        "nullable": false,
+        "ordinal": 1,
+        "is_identity": true
+      },
+      {
+        "name": "invoice_number",
+        "data_type": "varchar",
+        "nullable": false,
+        "ordinal": 2,
+        "max_length": 32,
+        "description": "The number the supplier assigned, exactly as printed."
+      },
+      {
+        "name": "supplier",
+        "data_type": "text",
+        "nullable": false,
+        "ordinal": 3,
+        "description": "Legal name of the company that issued the invoice."
+      },
+      {
+        "name": "vat_id",
+        "data_type": "text",
+        "nullable": true,
+        "ordinal": 4,
+        "description": "Seller VAT number, not the buyer. Null when the invoice does not carry one."
+      },
+      {
+        "name": "status",
+        "data_type": "invoice_status",
+        "nullable": false,
+        "ordinal": 5,
+        "enum_labels": [
+          "draft",
+          "sent",
+          "paid",
+          "void"
+        ],
+        "has_default": true,
+        "default_expr": "'draft'::invoice_status"
+      },
+      {
+        "name": "subtotal",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 6,
+        "numeric_scale": 2
+      },
+      {
+        "name": "tax",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 7,
+        "numeric_scale": 2
+      },
+      {
+        "name": "total",
+        "data_type": "numeric",
+        "nullable": false,
+        "ordinal": 8,
+        "numeric_scale": 2
+      },
+      {
+        "name": "issued_on",
+        "data_type": "date",
+        "nullable": false,
+        "ordinal": 9
+      }
+    ]
+  },
+  "instructions": "One row for the whole invoice, not one per line item. `subtotal` is the net amount after any discount, and `total` is the amount due. Take the invoice date, not the delivery date or the due date.",
+  "expected_flags": 0,
+  "expected": [
+    {
+      "invoice_number": "INV-2026-0147",
+      "supplier": "Northgate Supply Co.",
+      "vat_id": "SE556000000001",
+      "subtotal": "9140.19",
+      "tax": "2285.05",
+      "total": "11425.24",
+      "issued_on": "2026-09-01"
+    }
+  ]
+}

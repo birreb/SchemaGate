@@ -10,7 +10,7 @@ from fpdf import FPDF
 from schemagate.api.app import create_app
 from schemagate.config import Settings
 from schemagate.errors import ConfigurationError, TableNotFoundError
-from schemagate.extract.base import ModelT
+from schemagate.extract.base import Extracted, ModelT, Usage
 from schemagate.ingest.images import NormalisedImage
 from schemagate.schema.spec import ColumnSpec, TableRef, TableSchema
 
@@ -45,8 +45,11 @@ class FakeSchemas:
 class StubExtractor:
     async def extract(
         self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
-    ) -> ModelT:
-        return model.model_validate({"rows": []})
+    ) -> Extracted[ModelT]:
+        return Extracted(
+            value=model.model_validate({"rows": []}),
+            usage=Usage(model="stub", input_tokens=120, output_tokens=40),
+        )
 
 
 def client(**overrides: Any) -> TestClient:
@@ -204,12 +207,33 @@ def test_the_playground_loads_nothing_from_the_internet() -> None:
 def test_the_playground_only_calls_its_own_endpoints() -> None:
     page = client().get("/").text
 
-    calls = re.findall(r'fetch\(\s*["\'`]([^"\'`]+)', page)
+    # `send` is the wrapper every call goes through, so that none of them can
+    # forget the service key. Both spellings are matched, so a call added with
+    # a bare `fetch` is still caught here.
+    calls = re.findall(r'(?:send|fetch)\(\s*["\'`]([^"\'`]+)', page)
 
     assert calls, "the page does call the API"
     assert all(target.startswith("/") for target in calls), (
         f"every request must be relative to this service, got {calls}"
     )
+
+
+def test_the_playground_can_present_a_service_key() -> None:
+    """An endpoint behind a key is useless from a page that cannot present one."""
+    page = client().get("/").text
+
+    assert 'id="service-key"' in page
+    assert "X-API-Key" in page
+    assert page.count("await fetch(") == 0, (
+        "every call goes through the one wrapper that adds the header"
+    )
+
+
+def test_the_playground_shows_what_the_document_cost() -> None:
+    page = client().get("/").text
+
+    assert "body.usage" in page
+    assert "cost_usd" in page
 
 
 def test_an_unreachable_database_is_not_an_internal_error() -> None:
@@ -314,9 +338,9 @@ def test_instructions_reach_the_model_with_the_document() -> None:
     class Recorder:
         async def extract(
             self, document: str, model: type[ModelT], images: Sequence[NormalisedImage] = ()
-        ) -> ModelT:
+        ) -> Extracted[ModelT]:
             seen.append(document)
-            return model.model_validate({"rows": []})
+            return Extracted(value=model.model_validate({"rows": []}), usage=Usage(model="stub"))
 
     app = create_app(
         settings=Settings(connections={"primary": DSN}),

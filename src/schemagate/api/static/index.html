@@ -257,6 +257,11 @@
     <div class="fields">
       <label><span class="name">Connection</span><select id="connection"></select></label>
       <label><span class="name">Table</span><select id="table"></select></label>
+      <label>
+        <span class="name">Service key</span>
+        <input type="password" id="service-key" spellcheck="false" autocomplete="off"
+               placeholder="only if this server requires one">
+      </label>
     </div>
   </section>
 
@@ -358,11 +363,23 @@ Ignore the summary page at the end."></textarea>
     return node.innerHTML;
   };
 
+  // --- calling this server --------------------------------------------------
+
+  // Every request goes through here so that none of them can forget the key.
+  // Held in this browser and sent as a header, never put in a URL, where it
+  // would end up in a proxy log on the way.
+  const send = (path, options = {}) => {
+    const key = $("service-key").value.trim();
+    const headers = { ...(options.headers ?? {}) };
+    if (key) headers["X-API-Key"] = key;
+    return fetch(path, { ...options, headers });
+  };
+
   // --- destination ---------------------------------------------------------
 
   const loadConnections = async () => {
     try {
-      const { connections } = await (await fetch("/v1/connections")).json();
+      const { connections } = await (await send("/v1/connections")).json();
       $("connection").innerHTML = connections
         .map((name) => `<option value="${escape(name)}">${escape(name)}</option>`).join("");
       const saved = recall("connection");
@@ -379,7 +396,7 @@ Ignore the summary page at the end."></textarea>
     if (!connection) return;
     select.innerHTML = `<option value="">loading…</option>`;
     try {
-      const response = await fetch("/v1/tables?connection=" + encodeURIComponent(connection));
+      const response = await send("/v1/tables?connection=" + encodeURIComponent(connection));
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? "could not list tables");
 
@@ -444,7 +461,7 @@ Ignore the summary page at the end."></textarea>
 
     let body;
     try {
-      const response = await fetch("/v1/models", { method: "POST", body: form });
+      const response = await send("/v1/models", { method: "POST", body: form });
       body = await response.json();
       if (!response.ok) body = { models: [], source: "error", detail: body.detail };
     } catch (error) {
@@ -504,6 +521,10 @@ Ignore the summary page at the end."></textarea>
     if (event.dataTransfer.files[0]) choose(event.dataTransfer.files[0]);
   });
 
+  $("service-key").addEventListener("input", () => {
+    remember("service-key", $("service-key").value);
+    loadConnections();
+  });
   $("connection").addEventListener("change", () => { remember("connection", $("connection").value); loadTables(); });
   $("table").addEventListener("change", () => remember("table", $("table").value));
   $("provider").addEventListener("change", () => { remember("provider", $("provider").value); applyProvider(); });
@@ -546,7 +567,7 @@ Ignore the summary page at the end."></textarea>
     }
 
     try {
-      const response = await fetch("/v1/extract", { method: "POST", body: form });
+      const response = await send("/v1/extract", { method: "POST", body: form });
       const body = await response.json();
       if (response.ok) render(body); else fail(response.status, body);
     } catch (error) {
@@ -571,7 +592,14 @@ Ignore the summary page at the end."></textarea>
     badge.className = `badge ${body.status}`;
 
     const total = (body.stages ?? []).reduce((sum, stage) => sum + stage.ms, 0);
-    $("meta").textContent = `${body.table} · ${body.route} · ${body.rows.length} rows · ${total}ms`;
+    // Cost belongs beside duration. Both are what this request spent, and only
+    // one of them was ever shown.
+    const usage = body.usage ?? { calls: 0, total_tokens: 0, cost_usd: null };
+    const spent = usage.calls === 0
+      ? "no model call"
+      : `${usage.total_tokens} tokens` + (usage.cost_usd ? ` · $${usage.cost_usd}` : "");
+    $("meta").textContent =
+      `${body.table} · ${body.route} · ${body.rows.length} rows · ${total}ms · ${spent}`;
 
     // The slowest step is worth pointing at: on a PDF it is always the model,
     // which is the honest shape of where the time goes.
@@ -700,6 +728,7 @@ Ignore the summary page at the end."></textarea>
 
   document.querySelectorAll("select").forEach(enhance);
 
+  $("service-key").value = recall("service-key");
   $("provider").value = recall("provider");
   applyProvider();
   loadConnections();

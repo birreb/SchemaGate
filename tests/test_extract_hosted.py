@@ -55,7 +55,7 @@ async def test_anthropic_returns_a_validated_model() -> None:
 
     result = await AnthropicExtractor(client=client).extract("Invoice INV-1", Rows)
 
-    assert result.rows[0].invoice_number == "INV-1"
+    assert result.value.rows[0].invoice_number == "INV-1"
 
 
 async def test_anthropic_is_given_the_compiled_model() -> None:
@@ -173,7 +173,7 @@ def openai_extractor(client: FakeOpenAI) -> OpenAIExtractor:
 async def test_openai_returns_a_validated_model() -> None:
     result = await openai_extractor(FakeOpenAI()).extract("Invoice INV-1", Rows)
 
-    assert result.rows[0].total == "10.00"
+    assert result.value.rows[0].total == "10.00"
 
 
 async def test_openai_is_given_the_compiled_model() -> None:
@@ -239,7 +239,9 @@ async def test_the_same_document_and_model_work_through_either(
     anthropic_rows = await AnthropicExtractor(client=FakeAnthropic()).extract("doc", Rows)
     openai_rows = await openai_extractor(FakeOpenAI()).extract("doc", Rows)
 
-    assert anthropic_rows == openai_rows, "the protocol exists to make these interchangeable"
+    assert anthropic_rows.value == openai_rows.value, (
+        "the protocol exists to make these interchangeable"
+    )
 
 
 def test_extractors_are_typed_against_the_protocol() -> None:
