@@ -189,6 +189,21 @@
   .state.flagged { color: var(--flag); }
   .state.error { color: var(--bad); }
 
+  /* The path a document took, as a chain. Each node says what that step
+     found, so the pipeline is readable rather than asserted. */
+  .flow { display: grid; gap: 0; margin-bottom: 34px; }
+  .node {
+    display: grid; grid-template-columns: 92px 1fr auto; gap: 18px; align-items: baseline;
+    padding: 15px 0; border-bottom: 1px solid var(--line);
+  }
+  .node:first-child { border-top: 1px solid var(--line); }
+  .node .step {
+    font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink);
+  }
+  .node .said { color: var(--dim); font-size: 13px; }
+  .node .took { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .node.slow .took { color: var(--flag); }
+
   .scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { padding: 13px 20px 13px 0; text-align: left; white-space: nowrap; }
@@ -304,6 +319,7 @@ Ignore the summary page at the end."></textarea>
       <span id="status" class="state"></span>
       <span id="meta"></span>
     </div>
+    <div class="flow" id="flow"></div>
     <div class="scroll"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
     <div class="failures" id="failures"></div>
     <p class="note" id="note" hidden></p>
@@ -552,8 +568,18 @@ Ignore the summary page at the end."></textarea>
     badge.textContent = body.status;
     badge.className = `badge ${body.status}`;
 
-    const timings = Object.entries(body.timings_ms).map(([s, ms]) => `${s} ${ms}ms`).join("  ");
-    $("meta").textContent = `${body.table} · ${body.route} · ${body.rows.length} rows · ${timings}`;
+    const total = (body.stages ?? []).reduce((sum, stage) => sum + stage.ms, 0);
+    $("meta").textContent = `${body.table} · ${body.route} · ${body.rows.length} rows · ${total}ms`;
+
+    // The slowest step is worth pointing at: on a PDF it is always the model,
+    // which is the honest shape of where the time goes.
+    const slowest = Math.max(0, ...(body.stages ?? []).map((stage) => stage.ms));
+    $("flow").innerHTML = (body.stages ?? []).map((stage) => `
+      <div class="node${stage.ms === slowest && slowest > 0 ? " slow" : ""}">
+        <span class="step">${escape(stage.name)}</span>
+        <span class="said">${escape(stage.detail)}</span>
+        <span class="took">${stage.ms}ms</span>
+      </div>`).join("");
 
     // Mark the cell the gate complained about, so the problem is visible where
     // the value is rather than only in a list underneath.

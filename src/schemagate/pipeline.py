@@ -28,6 +28,20 @@ class Route(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class Stage:
+    """One step of the pipeline, and what it did.
+
+    The deterministic pipeline is the argument this project makes, and an
+    argument nobody can see is not much of one. Each step says what it found so
+    the path from a table definition to a row is legible rather than asserted.
+    """
+
+    name: str
+    detail: str
+    ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class Extraction:
     """What came out of a document, and everything that did not hold."""
 
@@ -38,6 +52,7 @@ class Extraction:
     unmatched_headers: tuple[str, ...] = ()
     missing_columns: tuple[str, ...] = ()
     timings_ms: dict[str, int] = field(default_factory=dict)
+    stages: tuple[Stage, ...] = ()
 
     @property
     def status(self) -> str:
@@ -63,13 +78,15 @@ async def process(
     the one for documents that have no data grid to read.
     """
     timings: dict[str, int] = {}
+    steps = _Steps()
     kind = detect_kind(data, filename)
 
     with _timed(timings, "parse"):
-        route, rows, alignment = await _read(data, kind, schema, extractor, instructions)
+        route, rows, alignment = await _read(data, kind, schema, extractor, instructions, steps)
 
-    with _timed(timings, "validate"):
+    with _timed(timings, "validate"), steps.step("check") as note:
         report = validate(rows, schema, rules)
+        note.detail = _describe_check(report.rows, report.failures)
 
     return Extraction(
         table=schema.qualified_name,
@@ -79,7 +96,39 @@ async def process(
         unmatched_headers=alignment[0],
         missing_columns=alignment[1],
         timings_ms=timings,
+        stages=tuple(steps.recorded),
     )
+
+
+def _describe_check(rows: Sequence[Any], failures: Sequence[Failure]) -> str:
+    counted = f"{len(rows)} row{'' if len(rows) == 1 else 's'}"
+    if not failures:
+        return f"{counted}, no failures"
+    kinds = sorted({failure.rule for failure in failures})
+    plural = "" if len(failures) == 1 else "s"
+    return f"{counted}, {len(failures)} failure{plural}: {', '.join(kinds)}"
+
+
+@dataclass
+class _Note:
+    detail: str = ""
+
+
+class _Steps:
+    """Collects what each stage did, with how long it took."""
+
+    def __init__(self) -> None:
+        self.recorded: list[Stage] = []
+
+    @contextmanager
+    def step(self, name: str) -> Iterator[_Note]:
+        note = _Note()
+        started = time.perf_counter()
+        try:
+            yield note
+        finally:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            self.recorded.append(Stage(name=name, detail=note.detail, ms=elapsed))
 
 
 async def _read(
@@ -88,41 +137,93 @@ async def _read(
     schema: TableSchema,
     extractor: Extractor | None,
     instructions: str | None = None,
+    steps: "_Steps | None" = None,
 ) -> tuple[Route, tuple[dict[str, str | None], ...], tuple[tuple[str, ...], tuple[str, ...]]]:
+    steps = steps or _Steps()
+
     if kind in {FileKind.CSV, FileKind.SPREADSHEET}:
-        table = await _read_table(data, kind)
-        aligned = align(table, schema)
+        with steps.step("read") as note:
+            table = await _read_table(data, kind)
+            source = "CSV" if kind is FileKind.CSV else "Spreadsheet"
+            note.detail = f"{source}, {len(table.headers)} columns, {len(table.rows)} data rows"
+
+        with steps.step("match") as note:
+            aligned = align(table, schema)
+            note.detail = _describe_match(aligned, schema)
+
         return Route.TABULAR, aligned.rows, (aligned.unmatched_headers, aligned.missing_columns)
 
     if kind is FileKind.PDF:
-        parsed = await read_pdf_async(data, allow_ocr=True)
+        with steps.step("read") as note:
+            parsed = await read_pdf_async(data, allow_ocr=True)
+            note.detail = (
+                f"PDF, {parsed.page_count} page{'' if parsed.page_count == 1 else 's'}, "
+                f"{parsed.pdf_type}, {len(parsed.markdown)} characters "
+                f"via {'OCR' if parsed.route == 'ocr' else 'the text layer'}"
+            )
+
         if parsed.needs_ocr:
             raise UnsupportedFileTypeError(
                 "This PDF has no readable text layer, and local OCR is not installed. "
                 "Install the `ocr` extra to read scanned documents without sending "
                 "them anywhere."
             )
+
         if parsed.hosted_recommended:
             # The parser is telling us its own OCR is not worth trusting for
             # these pages. Sending that text on would produce a confident,
             # invented answer, so the pages themselves go to the model instead.
             images = await anyio.to_thread.run_sync(render_pages, data, parsed.pages_for_vision)
             if images:
-                rows = await _ask(extractor, "", schema, instructions, images)
+                with steps.step("extract") as note:
+                    rows = await _ask(extractor, "", schema, instructions, images)
+                    note.detail = (
+                        f"OCR could not read {len(images)} page"
+                        f"{'' if len(images) == 1 else 's'}, so the page itself went to a "
+                        f"vision model. {len(rows)} rows returned"
+                    )
                 return Route.VISION, rows, ((), ())
 
         route = Route.OCR_PDF if parsed.route == "ocr" else Route.NATIVE_PDF
-        rows = await _ask(extractor, parsed.markdown, schema, instructions)
+        with steps.step("extract") as note:
+            rows = await _ask(extractor, parsed.markdown, schema, instructions)
+            note.detail = _describe_extract(len(rows), schema, "text")
         return route, rows, ((), ())
 
     if kind is FileKind.IMAGE:
-        # Normalised off the event loop: decoding and resampling a photograph is
-        # the same kind of CPU-bound work as parsing a PDF.
-        image = await anyio.to_thread.run_sync(normalise, data)
-        rows = await _ask(extractor, "", schema, instructions, (image,))
+        with steps.step("read") as note:
+            # Normalised off the event loop: decoding and resampling a photograph
+            # is the same kind of CPU-bound work as parsing a PDF.
+            image = await anyio.to_thread.run_sync(normalise, data)
+            note.detail = f"Image, normalised to {image.width} by {image.height}"
+
+        with steps.step("extract") as note:
+            rows = await _ask(extractor, "", schema, instructions, (image,))
+            note.detail = _describe_extract(len(rows), schema, "the image")
         return Route.VISION, rows, ((), ())
 
     raise UnsupportedFileTypeError(f"{kind.value} uploads are not supported.")
+
+
+def _describe_match(aligned: Any, schema: TableSchema) -> str:
+    """What lined up, and what the database keeps for itself."""
+    wanted = schema.extractable
+    matched = len(wanted) - len(aligned.missing_columns)
+    parts = [f"{matched} of {len(wanted)} columns matched"]
+    owned = [c.name for c in schema.columns if not c.is_extractable]
+    if owned:
+        parts.append(f"the database fills {', '.join(owned)}")
+    if aligned.unmatched_headers:
+        parts.append(f"ignored {', '.join(aligned.unmatched_headers)}")
+    return "; ".join(parts)
+
+
+def _describe_extract(rows: int, schema: TableSchema, source: str) -> str:
+    fields = len(schema.extractable)
+    return (
+        f"A model read {source} against a schema of {fields} "
+        f"field{'' if fields == 1 else 's'}, returning {rows} row{'' if rows == 1 else 's'}"
+    )
 
 
 async def _read_table(data: bytes, kind: FileKind) -> Table:

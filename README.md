@@ -39,6 +39,12 @@ $ curl -s localhost:8000/v1/extract \
       }
     ]
   },
+  "stages": [
+    { "name": "schema",  "detail": "Read public.invoices from the database: 10 columns, 8 to extract", "ms": 4 },
+    { "name": "read",    "detail": "PDF, 1 page, text_based, 842 characters via the text layer", "ms": 7 },
+    { "name": "extract", "detail": "A model read text against a schema of 8 fields, returning 2 rows", "ms": 2140 },
+    { "name": "check",   "detail": "2 rows, 1 failure: arithmetic", "ms": 0 }
+  ],
   "unmatched_headers": [],
   "missing_columns": [],
   "timings_ms": { "parse": 7, "validate": 0 }
@@ -47,6 +53,10 @@ $ curl -s localhost:8000/v1/extract \
 
 `flagged` is not an error. Extraction worked and a check did not hold. The rows still come
 back, nothing is silently repaired, and you decide what to do.
+
+`stages` is the path the document actually took, with what each step found and how long it
+spent. On a PDF the model is always the slowest step by an order of magnitude, which is
+worth being able to see rather than being asked to believe.
 
 ## Requirements
 

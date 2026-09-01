@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Annotated, Any, Protocol
 
@@ -165,7 +166,9 @@ async def extract(
         # Resolving the connection by name is also what proves the caller is
         # allowed to use it. A connection string never crosses the wire.
         settings.dsn(connection)
+        discovered = time.perf_counter()
         definition = await schemas.fetch(connection, namespace, table)
+        discovery_ms = int((time.perf_counter() - discovered) * 1000)
         result = await process(
             data,
             file.filename,
@@ -212,6 +215,21 @@ async def extract(
                 for failure in result.failures
             ]
         },
+        "stages": [
+            {
+                "name": "schema",
+                "detail": (
+                    f"Read {definition.qualified_name} from the database: "
+                    f"{len(definition.columns)} columns, "
+                    f"{len(definition.extractable)} to extract"
+                ),
+                "ms": discovery_ms,
+            },
+            *[
+                {"name": stage.name, "detail": stage.detail, "ms": stage.ms}
+                for stage in result.stages
+            ],
+        ],
         "unmatched_headers": list(result.unmatched_headers),
         "missing_columns": list(result.missing_columns),
         "timings_ms": result.timings_ms,

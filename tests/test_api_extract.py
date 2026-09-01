@@ -364,3 +364,23 @@ def test_the_playground_has_its_own_tab_icon() -> None:
     response = client().get("/icon.png")
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
+
+
+def test_the_response_shows_the_path_the_document_took() -> None:
+    body = client().post("/v1/extract", **upload()).json()
+
+    names = [stage["name"] for stage in body["stages"]]
+
+    assert names == ["schema", "read", "match", "check"], (
+        "the deterministic pipeline is the argument this makes, and it should "
+        "be visible rather than asserted"
+    )
+    assert all(stage["detail"] for stage in body["stages"])
+    assert body["stages"][0]["detail"].startswith("Read public.invoices")
+
+
+def test_the_playground_draws_the_path_the_document_took() -> None:
+    page = client().get("/").text
+
+    assert 'id="flow"' in page
+    assert "stages" in page
