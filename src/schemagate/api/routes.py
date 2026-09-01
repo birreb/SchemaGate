@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
 from schemagate.errors import (
+    ConfigurationError,
     DatabaseUnavailableError,
     ExtractionError,
     ExtractorNotConfiguredError,
@@ -92,11 +93,18 @@ async def extract(
     # `schema` is the right word on the wire but shadows a Pydantic attribute,
     # so the field keeps its name and the parameter takes another.
     namespace: Annotated[str, Form(alias="schema")] = "public",
+    # Optional, and only honoured when the operator has allowed it. Present so
+    # the playground can try a provider without a configuration change.
+    provider: Annotated[str | None, Form()] = None,
+    model: Annotated[str | None, Form()] = None,
+    api_key: Annotated[str | None, Form()] = None,
+    base_url: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
     schemas: SchemaSource = request.app.state.schemas
 
     data = await _read_upload(file, settings.max_upload_bytes)
+    extractor = _choose_extractor(request, settings, provider, model, api_key, base_url)
 
     try:
         # Resolving the connection by name is also what proves the caller is
@@ -107,11 +115,13 @@ async def extract(
             data,
             file.filename,
             definition,
-            extractor=request.app.state.extractor,
+            extractor=extractor,
             rules=settings.rules_for(definition.qualified_name),
         )
     except UnknownConnectionError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except ConfigurationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except TableNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except UnsupportedFileTypeError as error:
@@ -146,6 +156,48 @@ async def extract(
         "missing_columns": list(result.missing_columns),
         "timings_ms": result.timings_ms,
     }
+
+
+def _choose_extractor(
+    request: Request,
+    settings: Settings,
+    provider: str | None,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+) -> Any:
+    """Use the request's provider when one is given, otherwise the configured one.
+
+    A credential arriving in a request body is refused unless the operator has
+    turned it on. That is deliberately the operator's decision rather than the
+    caller's, and the key is used to build a client and then dropped: it is
+    never stored, logged, or repeated in a response.
+    """
+    if provider is None:
+        return request.app.state.extractor
+
+    if not settings.allow_request_credentials:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Choosing a provider per request is off. It sends a credential "
+                "over HTTP, so it has to be enabled deliberately with "
+                "SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS=true."
+            ),
+        )
+
+    from schemagate.api.app import make_extractor
+
+    try:
+        return make_extractor(
+            provider=provider,
+            model=model or None,
+            api_key=api_key or None,
+            base_url=base_url or None,
+            ollama_host=settings.ollama_host,
+        )
+    except ConfigurationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 async def _read_upload(file: UploadFile, limit: int) -> bytes:

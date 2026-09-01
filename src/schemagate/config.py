@@ -17,7 +17,10 @@ DEFAULT_OLLAMA_MODEL = "qwen3"
 # so that one has to be given.
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
 
-Provider = Literal["ollama", "anthropic", "openai"]
+# `openai_compatible` covers everything that speaks the OpenAI API at another
+# address: Groq, OpenRouter, Together, DeepSeek, vLLM, LM Studio, and
+# Gemini's compatibility endpoint. One adapter rather than one per vendor.
+Provider = Literal["ollama", "anthropic", "openai", "openai_compatible"]
 
 
 class Settings(BaseSettings):
@@ -48,6 +51,13 @@ class Settings(BaseSettings):
     ollama_model: str = DEFAULT_OLLAMA_MODEL
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
     openai_model: str | None = None
+    openai_base_url: str | None = None
+
+    # Whether a caller may name a provider and supply its key in the request.
+    # Off unless the operator turns it on: it is the playground's way to try a
+    # provider without editing configuration, and it means a credential
+    # crosses HTTP, which is not something a caller gets to decide.
+    allow_request_credentials: bool = False
 
     def __init__(self, **overrides: Any) -> None:
         try:

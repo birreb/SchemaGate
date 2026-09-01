@@ -50,36 +50,83 @@ def create_app(
 
 
 def build_extractor(settings: Settings) -> Extractor:
-    """Construct the configured model client.
+    """Construct the model client named in configuration.
 
     API keys are never read here. Each SDK picks up its own standard variable
     (ANTHROPIC_API_KEY, OPENAI_API_KEY), which keeps the credential out of this
     codebase entirely.
     """
+    return make_extractor(
+        provider=settings.provider or "ollama",
+        model=_configured_model(settings),
+        base_url=settings.openai_base_url,
+        ollama_host=settings.ollama_host,
+    )
+
+
+def _configured_model(settings: Settings) -> str | None:
     if settings.provider == "anthropic":
+        return settings.anthropic_model
+    if settings.provider in {"openai", "openai_compatible"}:
+        return settings.openai_model
+    return settings.ollama_model
+
+
+def make_extractor(
+    provider: str,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    ollama_host: str = "http://localhost:11434",
+) -> Extractor:
+    """Build one extractor from plain values.
+
+    Shared by configuration and by a request that carries its own credentials,
+    so both paths construct the client the same way. `api_key` is passed
+    straight to the SDK and is never stored, logged, or returned.
+    """
+    if provider == "anthropic":
         from anthropic import AsyncAnthropic
 
+        from schemagate.config import DEFAULT_ANTHROPIC_MODEL
         from schemagate.extract.anthropic import AnthropicExtractor
 
-        return AnthropicExtractor(client=AsyncAnthropic(), model=settings.anthropic_model)
+        return AnthropicExtractor(
+            client=AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic(),
+            model=model or DEFAULT_ANTHROPIC_MODEL,
+        )
 
-    if settings.provider == "openai":
+    if provider in {"openai", "openai_compatible"}:
         from openai import AsyncOpenAI
 
         from schemagate.extract.openai import OpenAIExtractor
 
-        if not settings.openai_model:
+        if not model:
             raise ConfigurationError(
-                "SCHEMAGATE_PROVIDER is 'openai' but SCHEMAGATE_OPENAI_MODEL is unset. "
-                "OpenAI model names change often, so this one has to be named rather "
-                "than guessed."
+                "This provider needs a model named. OpenAI model names change "
+                "often, so one is never guessed."
             )
-        return OpenAIExtractor(client=AsyncOpenAI(), model=settings.openai_model)
+        if provider == "openai_compatible" and not base_url:
+            raise ConfigurationError(
+                "An OpenAI-compatible provider needs a base_url, since that is "
+                "the only thing distinguishing it from OpenAI itself."
+            )
+        return OpenAIExtractor(
+            client=AsyncOpenAI(api_key=api_key or "unused", base_url=base_url),
+            model=model,
+        )
+
+    if provider != "ollama":
+        raise ConfigurationError(
+            f"Unknown provider {provider!r}. Choose anthropic, openai, openai_compatible or ollama."
+        )
 
     from ollama import AsyncClient
 
+    from schemagate.config import DEFAULT_OLLAMA_MODEL
     from schemagate.extract.ollama import OllamaExtractor
 
     return OllamaExtractor(
-        client=AsyncClient(host=settings.ollama_host), model=settings.ollama_model
+        client=AsyncClient(host=base_url or ollama_host),
+        model=model or DEFAULT_OLLAMA_MODEL,
     )
