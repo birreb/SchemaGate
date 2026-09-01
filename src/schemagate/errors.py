@@ -16,3 +16,7 @@ class TableNotFoundError(SchemaGateError):
 
 class UnsupportedColumnTypeError(SchemaGateError):
     """A table contains a column SchemaGate cannot compile into a model."""
+
+
+class MalformedDocumentError(SchemaGateError):
+    """An uploaded file could not be parsed as the type it claims to be."""
