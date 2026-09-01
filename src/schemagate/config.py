@@ -10,6 +10,8 @@ ENV_PREFIX = "SCHEMAGATE_"
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
+DEFAULT_OLLAMA_MODEL = "qwen3"
+
 
 class Settings(BaseSettings):
     """Runtime configuration, read from the environment.
@@ -25,6 +27,11 @@ class Settings(BaseSettings):
     # Arithmetic checks per table, keyed by qualified name, for example
     # {"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}
     rules: dict[str, list[SumRule]] = Field(default_factory=dict)
+
+    # Where a local Ollama server is listening. Left unset, documents that need
+    # a model are refused rather than silently sent anywhere.
+    ollama_host: str | None = None
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
 
     def __init__(self, **overrides: Any) -> None:
         try:

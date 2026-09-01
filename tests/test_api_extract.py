@@ -154,3 +154,40 @@ def test_the_schema_defaults_to_public_and_can_be_given(schema_name: str) -> Non
     response = client().post("/v1/extract", **upload(schema=schema_name))
 
     assert response.status_code == 200
+
+
+def test_no_extractor_is_configured_by_default() -> None:
+    app = create_app(settings=Settings(connections={"primary": DSN}), schemas=FakeSchemas())
+
+    with TestClient(app):
+        assert app.state.extractor is None, (
+            "with no model server configured, documents needing one are refused "
+            "rather than sent somewhere nobody asked for"
+        )
+
+
+def test_an_extractor_is_built_when_a_model_server_is_configured() -> None:
+    settings = Settings(
+        connections={"primary": DSN}, ollama_host="http://localhost:11434", ollama_model="qwen3"
+    )
+    app = create_app(settings=settings, schemas=FakeSchemas())
+
+    with TestClient(app):
+        assert app.state.extractor is not None
+
+
+def test_the_playground_is_served_at_the_root() -> None:
+    response = client().get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "SchemaGate" in response.text
+
+
+def test_the_playground_needs_no_external_resources() -> None:
+    page = client().get("/").text
+
+    assert "https://" not in page, (
+        "the service is meant to run inside a private network, so a page that "
+        "fetches a font or a script from the internet would not load there"
+    )

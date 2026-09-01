@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SchemaGate</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --ink: #16171a;
+    --muted: #6b7078;
+    --line: #e3e4e6;
+    --accent: #1b6bd6;
+    --ok: #17794a;
+    --flag: #9a5b00;
+    --flag-bg: #fdf5e7;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131417;
+      --panel: #1a1c20;
+      --ink: #e8e9ea;
+      --muted: #9aa0a8;
+      --line: #2b2e34;
+      --accent: #6ea8fe;
+      --ok: #5ec98f;
+      --flag: #e3b341;
+      --flag-bg: #2a2415;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  header { margin-bottom: 40px; }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+  }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  label { display: block; }
+  .name {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  input[type="text"] {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 13.5px;
+  }
+  input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  #drop {
+    border: 1.5px dashed var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 34px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); }
+  #drop.over { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+  #drop p { margin: 0; color: var(--muted); font-size: 14px; }
+  #drop strong { color: var(--ink); font-weight: 550; }
+  #chosen { font-family: var(--mono); font-size: 13px; }
+
+  .actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+  button {
+    padding: 9px 18px;
+    border: 0;
+    border-radius: 7px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 550;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  .hint { color: var(--muted); font-size: 13px; }
+
+  section { margin-top: 40px; }
+  section[hidden] { display: none; }
+
+  .summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .badge {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .badge.flagged { background: var(--flag-bg); color: var(--flag); }
+  .badge.error { background: color-mix(in srgb, #d13438 15%, transparent); color: #d13438; }
+  .meta { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  th {
+    background: var(--panel);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td { font-family: var(--mono); }
+  td.null { color: var(--muted); font-style: italic; }
+  td.bad { background: var(--flag-bg); color: var(--flag); }
+
+  .failures { margin-top: 18px; display: grid; gap: 8px; }
+  .failure {
+    border-left: 2.5px solid var(--flag);
+    background: var(--panel);
+    border-radius: 0 7px 7px 0;
+    padding: 9px 13px;
+    font-size: 13.5px;
+  }
+  .failure .where {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+
+  details { margin-top: 22px; }
+  summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 13px;
+    user-select: none;
+  }
+  pre {
+    margin: 10px 0 0;
+    padding: 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .note { margin-top: 12px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>SchemaGate</h1>
+    <p>Extract a document into rows that match a Postgres table.</p>
+  </header>
+
+  <div class="fields">
+    <label>
+      <span class="name">CONNECTION</span>
+      <input type="text" id="connection" value="primary" spellcheck="false">
+    </label>
+    <label>
+      <span class="name">SCHEMA</span>
+      <input type="text" id="schema" value="public" spellcheck="false">
+    </label>
+    <label>
+      <span class="name">TABLE</span>
+      <input type="text" id="table" placeholder="invoices" spellcheck="false">
+    </label>
+  </div>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose a file">
+    <p id="prompt"><strong>Drop a file</strong> or click to choose</p>
+    <p id="chosen" hidden></p>
+  </div>
+  <input type="file" id="file" hidden
+         accept=".csv,.tsv,.xlsx,.xls,.xlsb,.ods,.pdf,.png,.jpg,.jpeg,.webp,.tiff,.heic">
+
+  <div class="actions">
+    <button id="run" disabled>Extract</button>
+    <span class="hint" id="hint">Choose a file to begin.</span>
+  </div>
+
+  <section id="result" hidden>
+    <div class="summary">
+      <span class="badge" id="status"></span>
+      <span class="meta" id="meta"></span>
+    </div>
+    <div class="scroll"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
+    <div class="failures" id="failures"></div>
+    <p class="note" id="note" hidden></p>
+    <details>
+      <summary>Response</summary>
+      <pre id="raw"></pre>
+    </details>
+  </section>
+
+  <section id="failed" hidden>
+    <div class="summary">
+      <span class="badge error">error</span>
+      <span class="meta" id="code"></span>
+    </div>
+    <pre id="reason"></pre>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop");
+  const picker = $("file");
+  let file = null;
+
+  const choose = (chosen) => {
+    file = chosen;
+    $("prompt").hidden = true;
+    const label = $("chosen");
+    label.hidden = false;
+    label.textContent = `${chosen.name} · ${(chosen.size / 1024).toFixed(1)} kB`;
+    refresh();
+  };
+
+  const refresh = () => {
+    const ready = Boolean(file && $("table").value.trim());
+    $("run").disabled = !ready;
+    $("hint").textContent = file
+      ? (ready ? "" : "Name the target table.")
+      : "Choose a file to begin.";
+  };
+
+  drop.addEventListener("click", () => picker.click());
+  drop.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); }
+  });
+  picker.addEventListener("change", () => picker.files[0] && choose(picker.files[0]));
+  ["dragenter", "dragover"].forEach((name) =>
+    drop.addEventListener(name, (event) => { event.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((name) =>
+    drop.addEventListener(name, () => drop.classList.remove("over")));
+  drop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer.files[0]) choose(event.dataTransfer.files[0]);
+  });
+  $("table").addEventListener("input", refresh);
+
+  const show = (element, visible) => { element.hidden = !visible; };
+
+  $("run").addEventListener("click", async () => {
+    const button = $("run");
+    button.disabled = true;
+    $("hint").textContent = "Extracting…";
+    show($("result"), false);
+    show($("failed"), false);
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("connection", $("connection").value.trim());
+    form.append("schema", $("schema").value.trim() || "public");
+    form.append("table", $("table").value.trim());
+
+    try {
+      const response = await fetch("/v1/extract", { method: "POST", body: form });
+      const body = await response.json();
+      if (response.ok) render(body); else fail(response.status, body);
+    } catch (error) {
+      fail("network", { detail: String(error) });
+    } finally {
+      $("hint").textContent = "";
+      refresh();
+    }
+  });
+
+  const fail = (code, body) => {
+    $("code").textContent = code;
+    $("reason").textContent = body.detail ?? JSON.stringify(body, null, 2);
+    show($("failed"), true);
+  };
+
+  const render = (body) => {
+    $("raw").textContent = JSON.stringify(body, null, 2);
+
+    const badge = $("status");
+    badge.textContent = body.status;
+    badge.className = `badge ${body.status}`;
+
+    const timings = Object.entries(body.timings_ms)
+      .map(([stage, ms]) => `${stage} ${ms}ms`).join("  ");
+    $("meta").textContent = `${body.table} · ${body.route} · ${body.rows.length} rows · ${timings}`;
+
+    // A cell is marked when the gate reported a failure against it, so the
+    // problem is visible where the value is rather than only in a list below.
+    const bad = new Set(
+      body.validation.failures
+        .filter((failure) => failure.column !== null)
+        .map((failure) => `${failure.row}:${failure.column}`)
+    );
+
+    const columns = body.rows.length ? Object.keys(body.rows[0]) : [];
+    $("head").innerHTML = columns.length
+      ? `<tr>${columns.map((name) => `<th>${escape(name)}</th>`).join("")}</tr>`
+      : "";
+    $("body").innerHTML = body.rows.map((row, index) =>
+      `<tr>${columns.map((name) => cell(row[name], bad.has(`${index}:${name}`))).join("")}</tr>`
+    ).join("");
+
+    $("failures").innerHTML = body.validation.failures.map((failure) => `
+      <div class="failure">
+        <div class="where">row ${failure.row}${failure.column ? ` · ${escape(failure.column)}` : ""} · ${escape(failure.rule)}</div>
+        ${escape(failure.detail)}
+      </div>`).join("");
+
+    const notes = [];
+    if (body.unmatched_headers.length) {
+      notes.push(`Ignored columns not in the table: ${body.unmatched_headers.join(", ")}.`);
+    }
+    if (body.missing_columns.length) {
+      notes.push(`The file had no column for: ${body.missing_columns.join(", ")}.`);
+    }
+    const note = $("note");
+    note.textContent = notes.join(" ");
+    show(note, notes.length > 0);
+
+    show($("result"), true);
+  };
+
+  const cell = (value, flagged) => {
+    const classes = [flagged ? "bad" : "", value === null ? "null" : ""].filter(Boolean).join(" ");
+    const text = value === null ? "null" : String(value);
+    return `<td class="${classes}">${escape(text)}</td>`;
+  };
+
+  const escape = (text) => {
+    const node = document.createElement("span");
+    node.textContent = text;
+    return node.innerHTML;
+  };
+</script>
+</body>
+</html>

@@ -30,6 +30,17 @@ def create_app(
 
             owned = PoolSchemas(resolved)
             app.state.schemas = owned
+
+        if app.state.extractor is None and resolved.ollama_host:
+            from ollama import AsyncClient
+
+            from schemagate.extract.ollama import OllamaExtractor
+
+            app.state.extractor = OllamaExtractor(
+                client=AsyncClient(host=resolved.ollama_host),
+                model=resolved.ollama_model,
+            )
+
         try:
             yield
         finally:

@@ -14,9 +14,22 @@ DETERMINISTIC = {"temperature": 0, "seed": 0}
 
 
 class ChatClient(Protocol):
-    """The slice of `ollama.AsyncClient` this adapter uses."""
+    """The slice of `ollama.AsyncClient` this adapter uses.
 
-    async def chat(self, **kwargs: Any) -> Any: ...
+    Spelled out rather than left as `**kwargs`, which would claim the client
+    accepts any keyword at all and would not describe the real one.
+    """
+
+    async def chat(
+        self,
+        *,
+        model: str,
+        messages: Any,
+        # Shadows a builtin, and has to: this is the keyword the Ollama API
+        # takes, and renaming it here would stop the protocol matching.
+        format: Any,  # noqa: A002
+        options: Any,
+    ) -> Any: ...
 
 
 class OllamaExtractor:

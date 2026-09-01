@@ -1,6 +1,8 @@
+from pathlib import Path
 from typing import Annotated, Any, Protocol
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse
 
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
@@ -17,11 +19,27 @@ from schemagate.schema.spec import TableSchema
 
 router = APIRouter()
 
+# Read once at import. The page is a fixed asset, and reading it from disk on
+# every request would be work done for no reason.
+PLAYGROUND = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+
 
 class SchemaSource(Protocol):
     """Where a table definition comes from."""
 
     async def fetch(self, connection: str, schema: str, table: str) -> TableSchema: ...
+
+
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def playground() -> str:
+    """A single page for trying the endpoint by hand.
+
+    Not a dashboard and not the product. It exists so that someone evaluating
+    the API can see it work in the first minute, and it calls the same public
+    endpoint anyone else would. Everything is inline: a page that fetched a font
+    or a script from the internet would not load inside a private network.
+    """
+    return PLAYGROUND
 
 
 @router.get("/health")

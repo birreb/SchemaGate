@@ -1,0 +1,22 @@
+# Starts SchemaGate and nothing else. Your database already exists, and a
+# compose file that quietly starts a second Postgres would have you extracting
+# into the wrong one.
+services:
+  schemagate:
+    build: .
+    image: schemagate:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # Lets the container reach a database running on the host machine. Use
+    # host.docker.internal as the host in your connection string.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
