@@ -5,182 +5,206 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SchemaGate</title>
 <style>
+  /* Committed to one look rather than following the viewer's theme. This page is
+     a demonstration surface, and a deliberate look reads better than a
+     compromise between two. Monochrome throughout: the only colour on the page
+     marks something that did not hold. */
   :root {
-    color-scheme: light dark;
-    --bg: #fbfbfa; --panel: #ffffff; --ink: #16171a; --muted: #6b7078;
-    --line: #e3e4e6; --accent: #1b6bd6; --ok: #17794a;
-    --flag: #9a5b00; --flag-bg: #fdf5e7; --bad: #c0392b;
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --ink: #ededed;
+    --dim: #8a8a8a;
+    --faint: #5a5a5a;
+    --line: #1c1c1c;
+    --edge: #2c2c2c;
+    --flag: #c8a45c;
+    --bad: #c76a5e;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #131417; --panel: #1a1c20; --ink: #e8e9ea; --muted: #9aa0a8;
-      --line: #2b2e34; --accent: #6ea8fe; --ok: #5ec98f;
-      --flag: #e3b341; --flag-bg: #2a2415; --bad: #f0776c;
-    }
-  }
   * { box-sizing: border-box; }
+  html { background: var(--bg); }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  main { max-width: 900px; margin: 0 auto; padding: 56px 24px 96px; }
+  main { max-width: 940px; margin: 0 auto; padding: 88px 32px 140px; }
+  [hidden] { display: none !important; }
 
-  header { margin-bottom: 36px; }
-  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 620; letter-spacing: -0.01em; }
-  header p { margin: 0; color: var(--muted); font-size: 14px; }
-
-  fieldset { border: 0; margin: 0 0 20px; padding: 0; }
-  legend {
-    padding: 0 0 10px; font-size: 11px; font-weight: 600; color: var(--muted);
-    letter-spacing: .06em; text-transform: uppercase;
+  header { margin-bottom: 76px; }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 15px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
   }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 13px; }
+  header p { margin: 0; max-width: 46ch; color: var(--dim); font-size: 14px; }
+
+  /* Label left, count right, hairline under. Repeated for every section and for
+     the results, so the page has one structure rather than several. */
+  .rule {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 20px;
+    padding-bottom: 12px; margin-bottom: 24px;
+    border-bottom: 1px solid var(--edge);
+  }
+  .rule > span:first-child {
+    font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim);
+    white-space: nowrap;
+  }
+  .rule > span:last-child {
+    font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+    text-align: right; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  section { margin-bottom: 62px; }
+
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 28px; }
   label { display: block; }
   .name {
-    display: block; margin-bottom: 5px; font-size: 11.5px; font-weight: 550;
-    color: var(--muted); letter-spacing: .02em;
+    display: block; margin-bottom: 10px;
+    font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
   }
   input, select {
-    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
-    background: var(--panel); color: var(--ink);
-    font: inherit; font-family: var(--mono); font-size: 13.5px;
+    width: 100%; padding: 0 0 9px; border: 0; border-bottom: 1px solid var(--edge);
+    border-radius: 0; background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 13.5px; appearance: none;
   }
-  select { cursor: pointer; }
-  input:focus, select:focus {
-    outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  select {
+    cursor: pointer; padding-right: 18px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%),
+                      linear-gradient(135deg, var(--faint) 50%, transparent 50%);
+    background-position: right 5px top 6px, right 0 top 6px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
   }
-  input::placeholder { color: var(--muted); opacity: .6; }
-  [hidden] { display: none !important; }
-  .aside { margin-top: 7px; font-size: 12px; color: var(--muted); }
+  select option { background: #141414; color: var(--ink); }
+  input:focus, select:focus { outline: none; border-bottom-color: var(--ink); }
+  input::placeholder { color: var(--faint); }
+  .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
 
   #drop {
-    border: 1.5px dashed var(--line); border-radius: 10px; background: var(--panel);
-    padding: 32px 20px; text-align: center; cursor: pointer;
-    transition: border-color .12s, background .12s;
+    border: 1px dashed var(--edge); padding: 48px 24px; text-align: center; cursor: pointer;
+    transition: border-color .14s;
   }
-  #drop:hover, #drop.over { border-color: var(--accent); }
-  #drop.over { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
-  #drop p { margin: 0; color: var(--muted); font-size: 14px; }
-  #drop strong { color: var(--ink); font-weight: 550; }
-  #chosen { font-family: var(--mono); font-size: 13px; }
+  #drop:hover, #drop.over { border-color: var(--dim); }
+  #drop p { margin: 0; color: var(--faint); font-size: 13.5px; letter-spacing: .03em; }
+  #drop strong { color: var(--ink); font-weight: 500; }
+  #chosen { font-family: var(--mono); color: var(--ink) !important; }
 
-  .actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+  .actions { display: flex; align-items: center; gap: 22px; margin-top: 32px; }
   button {
-    padding: 9px 18px; border: 0; border-radius: 7px; background: var(--accent);
-    color: #fff; font: inherit; font-weight: 550; font-size: 14px; cursor: pointer;
+    padding: 0 0 7px; border: 0; border-bottom: 1px solid var(--ink); border-radius: 0;
+    background: none; color: var(--ink); cursor: pointer;
+    font: inherit; font-size: 14px; letter-spacing: .03em;
   }
-  button:disabled { opacity: .45; cursor: default; }
-  .hint { color: var(--muted); font-size: 13px; }
+  button::after { content: "  \2192"; }
+  button:disabled { color: var(--faint); border-bottom-color: var(--line); cursor: default; }
+  .hint { color: var(--faint); font-size: 12.5px; }
 
-  section { margin-top: 38px; }
-  .summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
-  .badge { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .badge.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
-  .badge.flagged { background: var(--flag-bg); color: var(--flag); }
-  .badge.error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
-  .meta { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .state { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; }
+  .state.ok { color: var(--dim); }
+  .state.flagged { color: var(--flag); }
+  .state.error { color: var(--bad); }
 
-  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
-  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 13px 20px 13px 0; text-align: left; white-space: nowrap; }
   th {
-    background: var(--panel); font-size: 11.5px; font-weight: 600; color: var(--muted);
-    letter-spacing: .03em; text-transform: uppercase;
+    font-size: 10px; font-weight: 400; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--faint); border-bottom: 1px solid var(--edge);
   }
+  td { border-bottom: 1px solid var(--line); font-family: var(--mono); color: var(--ink); }
   tbody tr:last-child td { border-bottom: 0; }
-  td { font-family: var(--mono); }
-  td.null { color: var(--muted); font-style: italic; }
-  td.bad { background: var(--flag-bg); color: var(--flag); }
+  .index { width: 1%; padding-right: 28px; color: var(--faint); }
+  td.null { color: var(--faint); }
+  td.bad { color: var(--flag); }
 
-  .failures { margin-top: 18px; display: grid; gap: 8px; }
-  .failure {
-    border-left: 2.5px solid var(--flag); background: var(--panel);
-    border-radius: 0 7px 7px 0; padding: 9px 13px; font-size: 13.5px;
+  .failures { margin-top: 36px; }
+  .failure { padding: 18px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .failure:last-child { border-bottom: 0; }
+  .failure .where {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--flag); margin-bottom: 7px;
   }
-  .failure .where { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .failure .what { color: var(--dim); }
 
-  details { margin-top: 22px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+  details { margin-top: 44px; }
+  summary {
+    cursor: pointer; list-style: none; color: var(--faint);
+    font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase;
+    padding-bottom: 12px; border-bottom: 1px solid var(--edge);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "  +"; }
+  details[open] summary::after { content: "  \2212"; }
   pre {
-    margin: 10px 0 0; padding: 14px; background: var(--panel); border: 1px solid var(--line);
-    border-radius: 9px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
-    white-space: pre-wrap; word-break: break-word;
+    margin: 24px 0 0; padding: 0; background: none; border: 0;
+    overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.7;
+    color: var(--dim); white-space: pre-wrap; word-break: break-word;
   }
-  .note { margin-top: 12px; color: var(--muted); font-size: 13px; }
+  .note { margin-top: 24px; color: var(--faint); font-size: 12.5px; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>SchemaGate</h1>
-    <p>Extract a document into rows that match a Postgres table.</p>
+    <p>Extract a document into rows that match a Postgres table. Nothing is written.</p>
   </header>
 
-  <fieldset>
-    <legend>Destination</legend>
-    <div class="grid">
-      <label>
-        <span class="name">CONNECTION</span>
-        <select id="connection"></select>
-      </label>
-      <label>
-        <span class="name">TABLE</span>
-        <select id="table"></select>
-      </label>
+  <section>
+    <div class="rule"><span>Destination</span><span id="destination-note"></span></div>
+    <div class="fields">
+      <label><span class="name">Connection</span><select id="connection"></select></label>
+      <label><span class="name">Table</span><select id="table"></select></label>
     </div>
-    <p class="aside" id="destination-note"></p>
-  </fieldset>
+  </section>
 
-  <fieldset>
-    <legend>Model</legend>
-    <div class="grid">
+  <section>
+    <div class="rule"><span>Model</span><span id="model-count"></span></div>
+    <div class="fields">
       <label>
-        <span class="name">PROVIDER</span>
+        <span class="name">Provider</span>
         <select id="provider">
-          <option value="">Use the server's setting</option>
+          <option value="">Server default</option>
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
           <option value="openai_compatible">OpenAI-compatible</option>
-          <option value="ollama">Ollama (local)</option>
+          <option value="ollama">Ollama, local</option>
         </select>
       </label>
-      <label id="model-field" hidden>
-        <span class="name">MODEL</span>
-        <select id="model"></select>
-      </label>
+      <label id="model-field" hidden><span class="name">Model</span><select id="model"></select></label>
       <label id="key-field" hidden>
-        <span class="name">API KEY</span>
+        <span class="name">API key</span>
         <input type="password" id="api-key" spellcheck="false" autocomplete="off">
       </label>
       <label id="url-field" hidden>
-        <span class="name">BASE URL</span>
+        <span class="name">Base URL</span>
         <input type="text" id="base-url" spellcheck="false" autocomplete="off">
       </label>
     </div>
-    <p class="aside" id="model-note">
-      Spreadsheets and CSV files never reach a model. Only PDFs do.
-    </p>
-  </fieldset>
+    <p class="aside" id="model-note">Spreadsheets and CSV files never reach a model. Only PDFs do.</p>
+  </section>
 
-  <div id="drop" tabindex="0" role="button" aria-label="Choose a file">
-    <p id="prompt"><strong>Drop a file</strong> or click to choose</p>
-    <p id="chosen" hidden></p>
-  </div>
-  <input type="file" id="file" hidden
-         accept=".csv,.tsv,.xlsx,.xls,.xlsb,.ods,.pdf,.png,.jpg,.jpeg,.webp,.tiff,.heic">
-
-  <div class="actions">
-    <button id="run" disabled>Extract</button>
-    <span class="hint" id="hint">Choose a file to begin.</span>
-  </div>
+  <section>
+    <div class="rule"><span>Document</span><span></span></div>
+    <div id="drop" tabindex="0" role="button" aria-label="Choose a file">
+      <p id="prompt"><strong>Drop a file</strong> or click to choose</p>
+      <p id="chosen" hidden></p>
+    </div>
+    <div class="actions">
+      <button id="run" disabled>Extract</button>
+      <span class="hint" id="hint">Choose a file to begin.</span>
+    </div>
+    <input type="file" id="file" hidden
+           accept=".csv,.tsv,.xlsx,.xls,.xlsb,.ods,.pdf,.png,.jpg,.jpeg,.webp,.tiff,.heic">
+  </section>
 
   <section id="result" hidden>
-    <div class="summary">
-      <span class="badge" id="status"></span>
-      <span class="meta" id="meta"></span>
+    <div class="rule">
+      <span id="status" class="state"></span>
+      <span id="meta"></span>
     </div>
     <div class="scroll"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
     <div class="failures" id="failures"></div>
@@ -189,14 +213,10 @@
   </section>
 
   <section id="failed" hidden>
-    <div class="summary">
-      <span class="badge error">error</span>
-      <span class="meta" id="code"></span>
-    </div>
+    <div class="rule"><span class="state error">Error</span><span id="code"></span></div>
     <pre id="reason"></pre>
   </section>
 </main>
-
 <script>
   const $ = (id) => document.getElementById(id);
   const show = (element, visible) => { element.hidden = !visible; };
