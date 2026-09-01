@@ -7,7 +7,7 @@ from typing import Any
 
 import anyio.to_thread
 
-from schemagate.errors import UnsupportedFileTypeError
+from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import Extractor
 from schemagate.ingest.pdf import read_pdf_async
 from schemagate.ingest.router import FileKind, detect_kind
@@ -115,8 +115,11 @@ async def _ask(
     extractor: Extractor | None, document: str, schema: TableSchema
 ) -> tuple[dict[str, str | None], ...]:
     if extractor is None:
-        raise UnsupportedFileTypeError(
-            "This document needs a model to read it, and no extractor is configured."
+        # Not the caller's mistake. The file type is supported and they could
+        # not have known the server has no model behind it.
+        raise ExtractorNotConfiguredError(
+            "This document needs a model to read it, and no model server is "
+            "configured. Set SCHEMAGATE_PROVIDER."
         )
 
     container = build_container_model(schema)

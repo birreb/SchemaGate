@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +11,13 @@ ENV_PREFIX = "SCHEMAGATE_"
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 DEFAULT_OLLAMA_MODEL = "qwen3"
+
+# Named by the Anthropic SDK docs as current. OpenAI names change often
+# enough that defaulting to one would fail later with a model nobody chose,
+# so that one has to be given.
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
+
+Provider = Literal["ollama", "anthropic", "openai"]
 
 
 class Settings(BaseSettings):
@@ -34,10 +41,13 @@ class Settings(BaseSettings):
     # {"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}
     rules: dict[str, list[SumRule]] = Field(default_factory=dict)
 
-    # Where a local Ollama server is listening. Left unset, documents that need
-    # a model are refused rather than silently sent anywhere.
-    ollama_host: str | None = None
+    # Which model service to extract with. Left unset, documents that need a
+    # model are refused rather than silently sent somewhere nobody asked for.
+    provider: Provider | None = None
+    ollama_host: str = "http://localhost:11434"
     ollama_model: str = DEFAULT_OLLAMA_MODEL
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
+    openai_model: str | None = None
 
     def __init__(self, **overrides: Any) -> None:
         try:

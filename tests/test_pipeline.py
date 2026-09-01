@@ -6,7 +6,7 @@ import pytest
 from fpdf import FPDF
 from openpyxl import Workbook
 
-from schemagate.errors import UnsupportedFileTypeError
+from schemagate.errors import ExtractorNotConfiguredError, UnsupportedFileTypeError
 from schemagate.extract.base import ModelT
 from schemagate.pipeline import Route, process
 from schemagate.schema.spec import ColumnSpec, TableSchema
@@ -144,8 +144,8 @@ async def test_headers_that_match_nothing_are_reported() -> None:
     assert result.unmatched_headers == ("colour",)
 
 
-async def test_a_pdf_with_no_extractor_is_refused() -> None:
-    with pytest.raises(UnsupportedFileTypeError):
+async def test_a_pdf_with_no_extractor_is_a_configuration_problem() -> None:
+    with pytest.raises(ExtractorNotConfiguredError):
         await process(pdf(), "invoice.pdf", INVOICES, extractor=None)
 
 

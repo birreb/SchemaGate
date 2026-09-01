@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from schemagate import __version__
 from schemagate.api.routes import SchemaSource, router
 from schemagate.config import Settings
+from schemagate.errors import ConfigurationError
 from schemagate.extract.base import Extractor
 
 
@@ -31,15 +32,8 @@ def create_app(
             owned = PoolSchemas(resolved)
             app.state.schemas = owned
 
-        if app.state.extractor is None and resolved.ollama_host:
-            from ollama import AsyncClient
-
-            from schemagate.extract.ollama import OllamaExtractor
-
-            app.state.extractor = OllamaExtractor(
-                client=AsyncClient(host=resolved.ollama_host),
-                model=resolved.ollama_model,
-            )
+        if app.state.extractor is None and resolved.provider is not None:
+            app.state.extractor = build_extractor(resolved)
 
         try:
             yield
@@ -53,3 +47,39 @@ def create_app(
     app.state.extractor = extractor
     app.include_router(router)
     return app
+
+
+def build_extractor(settings: Settings) -> Extractor:
+    """Construct the configured model client.
+
+    API keys are never read here. Each SDK picks up its own standard variable
+    (ANTHROPIC_API_KEY, OPENAI_API_KEY), which keeps the credential out of this
+    codebase entirely.
+    """
+    if settings.provider == "anthropic":
+        from anthropic import AsyncAnthropic
+
+        from schemagate.extract.anthropic import AnthropicExtractor
+
+        return AnthropicExtractor(client=AsyncAnthropic(), model=settings.anthropic_model)
+
+    if settings.provider == "openai":
+        from openai import AsyncOpenAI
+
+        from schemagate.extract.openai import OpenAIExtractor
+
+        if not settings.openai_model:
+            raise ConfigurationError(
+                "SCHEMAGATE_PROVIDER is 'openai' but SCHEMAGATE_OPENAI_MODEL is unset. "
+                "OpenAI model names change often, so this one has to be named rather "
+                "than guessed."
+            )
+        return OpenAIExtractor(client=AsyncOpenAI(), model=settings.openai_model)
+
+    from ollama import AsyncClient
+
+    from schemagate.extract.ollama import OllamaExtractor
+
+    return OllamaExtractor(
+        client=AsyncClient(host=settings.ollama_host), model=settings.ollama_model
+    )

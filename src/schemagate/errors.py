@@ -32,3 +32,7 @@ class ExtractionError(SchemaGateError):
 
 class DatabaseUnavailableError(SchemaGateError):
     """A configured database could not be reached."""
+
+
+class ExtractorNotConfiguredError(SchemaGateError):
+    """A document needs a model and no model server is configured."""

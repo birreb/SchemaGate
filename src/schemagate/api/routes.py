@@ -9,6 +9,7 @@ from schemagate.config import Settings
 from schemagate.errors import (
     DatabaseUnavailableError,
     ExtractionError,
+    ExtractorNotConfiguredError,
     MalformedDocumentError,
     TableNotFoundError,
     UnknownConnectionError,
@@ -83,8 +84,9 @@ async def extract(
         raise HTTPException(status_code=415, detail=str(error)) from error
     except (MalformedDocumentError, UnsupportedColumnTypeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except DatabaseUnavailableError as error:
-        # Neither the caller's mistake nor a defect in us: the database is down.
+    except (DatabaseUnavailableError, ExtractorNotConfiguredError) as error:
+        # Neither the caller's mistake nor a defect in us: something the
+        # deployment depends on is missing or down.
         raise HTTPException(status_code=503, detail=str(error)) from error
     except ExtractionError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
