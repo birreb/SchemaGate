@@ -1,6 +1,6 @@
 # Build and runtime are separated so the image ships the virtualenv without uv,
 # the lockfile, or a compiler toolchain.
-FROM python:3.13-slim AS build
+FROM python:3.14-slim AS build
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
@@ -19,7 +19,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --extra server
 
 
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Runs unprivileged. The service reads a database and parses files people
 # upload, so it has no business owning anything in its own filesystem.
