@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="" width="76">
+
 # SchemaGate
 
 [![CI](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml/badge.svg)](https://github.com/birreb/SchemaGate/actions/workflows/ci.yml)

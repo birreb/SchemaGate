@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 tests/
 docs/
+assets/
 .env
 *.env
 !.env.example

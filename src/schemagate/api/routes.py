@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated, Any, Protocol
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from schemagate.api.serialize import to_json_row
 from schemagate.config import Settings
@@ -24,7 +24,8 @@ router = APIRouter()
 
 # Read once at import. The page is a fixed asset, and reading it from disk on
 # every request would be work done for no reason.
-PLAYGROUND = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+STATIC = Path(__file__).parent / "static"
+PLAYGROUND = (STATIC / "index.html").read_text(encoding="utf-8")
 
 REQUEST_CREDENTIALS_OFF = (
     "Choosing a provider per request is off. It sends a credential over HTTP, "
@@ -122,6 +123,12 @@ async def models(
         "source": listing.source,
         "detail": listing.detail,
     }
+
+
+@router.get("/icon.png", include_in_schema=False)
+async def icon() -> FileResponse:
+    """The tab icon, served from the package rather than fetched anywhere."""
+    return FileResponse(STATIC / "icon.png", media_type="image/png")
 
 
 @router.get("/health")

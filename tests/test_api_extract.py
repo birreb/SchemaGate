@@ -355,3 +355,12 @@ def test_the_dropdowns_do_not_rely_on_the_native_popup() -> None:
         "the real select stays the source of truth, so the styled list has to "
         "follow when options are rebuilt"
     )
+
+
+def test_the_playground_has_its_own_tab_icon() -> None:
+    page = client().get("/").text
+    assert 'rel="icon"' in page
+
+    response = client().get("/icon.png")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
