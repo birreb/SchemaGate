@@ -20,6 +20,10 @@ def to_json_value(value: Any) -> Any:
         return str(value)
     if isinstance(value, list):
         return [to_json_value(item) for item in value]
+    if isinstance(value, dict):
+        # A json column arrives parsed, and goes out as structure rather
+        # than as a string containing structure.
+        return {key: to_json_value(item) for key, item in value.items()}
     return value
 
 

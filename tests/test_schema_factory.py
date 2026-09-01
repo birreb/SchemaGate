@@ -64,7 +64,7 @@ def test_array_columns_become_lists_of_the_element_type() -> None:
     assert model.model_fields["value"].annotation == list[str]
 
 
-@pytest.mark.parametrize("data_type", ["json", "jsonb", "tsvector"])
+@pytest.mark.parametrize("data_type", ["tsvector", "point", "money"])
 def test_unsupported_types_are_rejected_by_name(data_type: str) -> None:
     with pytest.raises(UnsupportedColumnTypeError) as caught:
         build_row_model(table(column("payload", data_type)))

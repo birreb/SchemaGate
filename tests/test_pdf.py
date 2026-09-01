@@ -116,9 +116,9 @@ async def test_parsing_runs_off_the_event_loop_thread(monkeypatch: pytest.Monkey
     seen: list[int] = []
     original = pdf_module.read_pdf
 
-    def spy(data: bytes) -> pdf_module.PdfText:
+    def spy(data: bytes, allow_ocr: bool = False) -> pdf_module.PdfText:
         seen.append(threading.get_ident())
-        return original(data)
+        return original(data, allow_ocr)
 
     monkeypatch.setattr(pdf_module, "read_pdf", spy)
 

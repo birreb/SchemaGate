@@ -21,6 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 server = ["uvicorn[standard]>=0.32"]
+# Local OCR for scanned documents. Separate because ONNX Runtime and PDFium
+# add tens of megabytes, and most deployments never see a scan.
+ocr = ["onnxruntime>=1.29", "pypdfium2>=5.13"]
 
 [dependency-groups]
 dev = [
@@ -28,7 +31,9 @@ dev = [
     "fpdf2>=2.8.8",
     "httpx2>=2.12",
     "mypy>=1.13",
+    "onnxruntime>=1.29.0",
     "openpyxl>=3.1.5",
+    "pypdfium2>=5.13.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
@@ -47,6 +52,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "postgres: requires a live PostgreSQL instance (set SCHEMAGATE_TEST_DSN)",
+    "ocr: requires the ocr extra (onnxruntime and pypdfium2)",
 ]
 
 [tool.ruff]
@@ -57,6 +63,18 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "PTH", "RUF"]
 
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin. It exists to reject syntax newer than the floor,
+# but CI runs the whole suite on 3.11, which proves that far better than a
+# flag does. Pinned to 3.11 here, mypy also cannot parse numpy's stubs,
+# which Pillow drags in, and fails before checking any of this project.
 strict = true
 files = ["src", "tests"]
+
+# Pillow is typed and imports numpy, whose stubs use syntax newer than the
+# Python floor this project supports, so mypy cannot even parse them. Pillow
+# is a test-only dependency used to draw fixture images, so not following it
+# costs nothing and stops the chain before numpy.
+[[tool.mypy.overrides]]
+module = ["PIL.*", "numpy.*", "onnxruntime.*", "pypdfium2_raw.*"]
+ignore_missing_imports = true
+follow_imports = "skip"

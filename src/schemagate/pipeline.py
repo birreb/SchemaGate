@@ -22,6 +22,7 @@ from schemagate.validate.rules import SumRule
 class Route(StrEnum):
     TABULAR = "tabular"
     NATIVE_PDF = "native_pdf"
+    OCR_PDF = "ocr_pdf"
     VISION = "vision"
 
 
@@ -93,14 +94,16 @@ async def _read(
         return Route.TABULAR, aligned.rows, (aligned.unmatched_headers, aligned.missing_columns)
 
     if kind is FileKind.PDF:
-        parsed = await read_pdf_async(data)
+        parsed = await read_pdf_async(data, allow_ocr=True)
         if parsed.needs_ocr:
             raise UnsupportedFileTypeError(
-                "This PDF has no readable text layer. Scanned documents need the OCR or "
-                "vision route, which is not built yet."
+                "This PDF has no readable text layer, and local OCR is not installed. "
+                "Install the `ocr` extra to read scanned documents without sending "
+                "them anywhere."
             )
+        route = Route.OCR_PDF if parsed.route == "ocr" else Route.NATIVE_PDF
         rows = await _ask(extractor, parsed.markdown, schema, instructions)
-        return Route.NATIVE_PDF, rows, ((), ())
+        return route, rows, ((), ())
 
     raise UnsupportedFileTypeError(
         f"{kind.value} uploads need the vision route, which is not built yet."

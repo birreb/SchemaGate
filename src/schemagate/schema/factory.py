@@ -30,6 +30,10 @@ SCALAR_TYPES: dict[str, type] = {
     "timetz": str,
     "uuid": str,
     "varchar": str,
+    # Carried as a string holding JSON. Strict structured output cannot
+    # describe an object of unknown shape, and a string can hold one.
+    "json": str,
+    "jsonb": str,
 }
 
 _MODEL_CONFIG = ConfigDict(extra="forbid")
@@ -44,6 +48,8 @@ FORMAT_HINTS = {
     "timestamptz": "Format as YYYY-MM-DDTHH:MM:SS with an offset.",
     "time": "Format as HH:MM:SS.",
     "timetz": "Format as HH:MM:SS with an offset.",
+    "json": "A JSON object or array, written as a JSON string.",
+    "jsonb": "A JSON object or array, written as a JSON string.",
 }
 
 

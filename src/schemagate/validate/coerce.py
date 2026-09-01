@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import re
 import uuid
 from collections.abc import Mapping, Sequence
@@ -18,6 +19,7 @@ CURRENCY_SYMBOLS = frozenset("€$£¥₹₽₩")
 INTEGER_TYPES = frozenset({"int2", "int4", "int8"})
 FLOAT_TYPES = frozenset({"float4", "float8"})
 EXACT_TYPES = frozenset({"numeric", "decimal"})
+JSON_TYPES = frozenset({"json", "jsonb"})
 
 # A separator followed by exactly three digits is either a thousands separator
 # or a decimal point, and nothing in the string says which.
@@ -193,6 +195,8 @@ def _convert_scalar(
         return _to_datetime(text)
     if data_type in {"time", "timetz"}:
         return dt.time.fromisoformat(text.strip())
+    if data_type in JSON_TYPES:
+        return _to_json(text)
     if data_type == "uuid":
         return uuid.UUID(text.strip())
     return text
@@ -277,6 +281,23 @@ def _from_month_name(body: str) -> dt.date | None:
         except ValueError:
             return None
     return None
+
+
+def _to_json(text: str) -> Any:
+    """Parse the JSON a model wrote into a string, and insist it is a container.
+
+    Postgres would happily store a bare scalar in a json column, so nothing
+    downstream would complain. It is almost always a mistake, and catching it
+    here is the difference between noticing now and noticing in a query later.
+    """
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"not valid JSON: {error}") from error
+
+    if not isinstance(value, dict | list):
+        raise ValueError(f"a json column expects an object or an array, got {type(value).__name__}")
+    return value
 
 
 def _to_bool(text: str) -> bool:

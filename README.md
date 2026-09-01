@@ -51,7 +51,10 @@ back, nothing is silently repaired, and you decide what to do.
 - A PostgreSQL database with a table to extract into. SchemaGate needs only `SELECT` on
   `pg_catalog`, which every role has, and does not write.
 - Docker, or Python 3.11 or newer.
-- For PDFs, a running [Ollama](https://ollama.com) server. Spreadsheets and CSVs need no model.
+- For PDFs, a model: Anthropic, OpenAI, any OpenAI-compatible endpoint, or a local
+  [Ollama](https://ollama.com). Spreadsheets and CSVs need no model at all.
+- For scanned PDFs, `pip install schemagate[ocr]`. OCR runs locally, so a scan never leaves
+  your network. It adds about 20 MB of shared libraries, which is why it is separate.
 
 ## Try it in one command
 
@@ -121,7 +124,8 @@ the problem entirely by being one variable each.
 | CSV, TSV | stdlib `csv` with encoding detection | no |
 | XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | no |
 | PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | yes |
-| Scanned PDF, images | not yet | not yet |
+| Scanned PDF | local OCR, with the `ocr` extra | yes |
+| Images | not yet | not yet |
 
 Uploads are identified by content, not by filename or the declared content type. A PDF named
 `statement.csv` is treated as a PDF.
@@ -188,10 +192,12 @@ Worth knowing before you evaluate it.
   column comments, which no portable interface exposes.
 - **No writes.** SchemaGate returns JSON. Inserting is yours to do, deliberately, because a
   service that writes to your production database is a much larger thing to trust.
-- **`json` and `jsonb` columns are not supported.** Strict structured output cannot express a
-  free-form object.
-- **Scanned documents and photographs are not supported yet.** A PDF with no text layer is
-  refused rather than guessed at.
+- **Photographs are not supported yet.** A scanned PDF is read by local OCR when the `ocr`
+  extra is installed; a loose image file is still refused rather than guessed at.
+- **`json` and `jsonb` are carried as JSON strings.** Strict structured output cannot
+  describe an object of unknown shape, so the model writes JSON into a string and it is
+  parsed and checked here. A bare scalar is refused: Postgres would store it, and it is
+  almost always a mistake.
 - **A twenty-digit number in a spreadsheet is already wrong before we see it.** Excel rounds
   through a float when saving, and no reader can recover the digits. SchemaGate refuses such a
   value instead of expanding it into a plausible, wrong identifier. Store long identifiers as

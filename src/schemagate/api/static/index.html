@@ -85,23 +85,26 @@
   }
   input::placeholder, textarea::placeholder { color: #4a4a4a; }
 
+  /* The open popup is drawn by the browser, not by this stylesheet. Declaring
+     the scheme on the element is what makes it come up dark rather than in
+     system light colours. */
   select {
-    cursor: pointer; padding-right: 34px;
+    cursor: pointer; padding-right: 34px; color-scheme: dark;
+    background-color: var(--field);
     background-image:
       linear-gradient(45deg, transparent 50%, var(--dim) 50%),
-      linear-gradient(135deg, var(--dim) 50%, transparent 50%),
-      linear-gradient(var(--field), var(--field));
-    background-position: right 15px center, right 9px center, 0 0;
-    background-size: 6px 6px, 6px 6px, 100% 100%;
+      linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+    background-position: right 15px center, right 9px center;
+    background-size: 6px 6px, 6px 6px;
     background-repeat: no-repeat;
   }
   select:hover, select:focus {
+    background-color: var(--field-hi);
     background-image:
       linear-gradient(45deg, transparent 50%, var(--ink) 50%),
-      linear-gradient(135deg, var(--ink) 50%, transparent 50%),
-      linear-gradient(var(--field-hi), var(--field-hi));
+      linear-gradient(135deg, var(--ink) 50%, transparent 50%);
   }
-  select option { background: #16181b; color: var(--ink); }
+  select option, select optgroup { background-color: #16181b; color: var(--ink); }
   .aside { margin: 20px 0 0; font-size: 12.5px; color: var(--faint); max-width: 70ch; }
   textarea { min-height: 96px; resize: vertical; line-height: 1.65; }
 
