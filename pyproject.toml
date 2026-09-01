@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "python-calamine>=0.8.2",
     "python-multipart>=0.0.20",
 ]
 
@@ -22,9 +23,11 @@ dev = [
     "asyncpg-stubs>=0.31.3",
     "httpx2>=2.12",
     "mypy>=1.13",
+    "openpyxl>=3.1.5",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
+    "types-openpyxl>=3.1.5.20260827",
 ]
 
 [build-system]

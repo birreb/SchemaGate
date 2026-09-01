@@ -1,8 +1,11 @@
 import csv
+import datetime as dt
 import io
 from dataclasses import dataclass
+from typing import Any
 
 from charset_normalizer import from_bytes
+from python_calamine import CalamineError, CalamineWorkbook
 
 from schemagate.errors import MalformedDocumentError
 
@@ -40,6 +43,59 @@ def read_csv(data: bytes) -> Table:
     headers = tuple(header.strip() for header in grid[0])
     _reject_duplicates(headers)
     return Table(headers=headers, rows=tuple(_align(row, len(headers)) for row in grid[1:]))
+
+
+def read_spreadsheet(data: bytes, sheet: str | None = None) -> Table:
+    """Parse a workbook into a Table, reading the first sheet unless named.
+
+    Uses calamine, which is a Rust engine and also reads the legacy `.xls` and
+    `.ods` formats that openpyxl cannot open at all.
+    """
+    try:
+        book = CalamineWorkbook.from_filelike(io.BytesIO(data))
+    except CalamineError as error:
+        raise MalformedDocumentError(f"The file is not a readable workbook: {error}") from error
+
+    try:
+        worksheet = _select_sheet(book, sheet)
+        grid = [[_render(cell) for cell in row] for row in worksheet.to_python()]
+    finally:
+        book.close()
+
+    grid = [row for row in grid if any(cell.strip() for cell in row)]
+    if not grid:
+        raise MalformedDocumentError(f"Sheet {worksheet.name!r} has no rows.")
+
+    headers = tuple(header.strip() for header in grid[0])
+    _reject_duplicates(headers)
+    return Table(headers=headers, rows=tuple(_align(row, len(headers)) for row in grid[1:]))
+
+
+def _select_sheet(book: CalamineWorkbook, sheet: str | None) -> Any:
+    if sheet is None:
+        return book.get_sheet_by_index(0)
+    if sheet not in book.sheet_names:
+        available = ", ".join(repr(name) for name in book.sheet_names)
+        raise MalformedDocumentError(f"No sheet named {sheet!r}. This workbook has: {available}.")
+    return book.get_sheet_by_name(sheet)
+
+
+def _render(value: Any) -> str:
+    """Render a typed cell as the string a column would have been given as text.
+
+    Calamine returns every number as a float, so an integer 3 arrives as 3.0.
+    Passed on unchanged it would be rejected by any integer column, so whole
+    numbers lose the decimal point here.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    if isinstance(value, dt.datetime | dt.date | dt.time):
+        return value.isoformat()
+    return str(value)
 
 
 def _decode(data: bytes) -> str:
