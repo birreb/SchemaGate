@@ -8,3 +8,7 @@ class ConfigurationError(SchemaGateError):
 
 class UnknownConnectionError(SchemaGateError):
     """A caller asked for a database connection that is not configured."""
+
+
+class UnsupportedColumnTypeError(SchemaGateError):
+    """A table contains a column SchemaGate cannot compile into a model."""
