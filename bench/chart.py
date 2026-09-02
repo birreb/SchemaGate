@@ -23,8 +23,8 @@ from typing import Any
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import Patch  # noqa: E402
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
@@ -144,20 +144,42 @@ def draw_documents(
         bottoms = [b + v for b, v in zip(bottoms, values, strict=True)]
     for index, condition in enumerate(CONDITIONS):
         share = shares[condition]
-        ax.text(index, share["correct"] * 50, f"{share['correct'] * 100:.0f}%", ha="center",
-                va="center", color="white", fontsize=12, fontweight="bold")
+        ax.text(
+            index,
+            share["correct"] * 50,
+            f"{share['correct'] * 100:.0f}%",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=12,
+            fontweight="bold",
+        )
         flagged = share["flagged"] * 100
         wrong = share["wrong_silent"] * 100
         flagged_y = (share["correct"] + share["flagged"] / 2) * 100
         wrong_y = (share["correct"] + share["flagged"] + share["wrong_silent"] / 2) * 100
         if flagged > 0.3:
-            ax.text(index + 0.34, flagged_y, f"{flagged:.1f}% flagged", ha="left", va="center",
-                    fontsize=8.5, color="#a6690f")
+            ax.text(
+                index + 0.34,
+                flagged_y,
+                f"{flagged:.1f}% flagged",
+                ha="left",
+                va="center",
+                fontsize=8.5,
+                color="#a6690f",
+            )
         if wrong > 0.3:
             # Keep the two labels apart when both slices are thin.
             wrong_y = max(wrong_y, flagged_y + 3) if flagged > 0.3 else wrong_y
-            ax.text(index + 0.34, wrong_y, f"{wrong:.1f}% wrong", ha="left", va="center",
-                    fontsize=8.5, color="#9b3b2e")
+            ax.text(
+                index + 0.34,
+                wrong_y,
+                f"{wrong:.1f}% wrong",
+                ha="left",
+                va="center",
+                fontsize=8.5,
+                color="#9b3b2e",
+            )
     if len(shares_by_run) > 1:
         for index, condition in enumerate(CONDITIONS):
             corrects = [r[condition]["correct"] * 100 for r in shares_by_run.values()]
@@ -177,13 +199,26 @@ def draw_documents(
         loc="left",
         fontsize=11.5,
     )
-    ax.legend(handles=[Patch(color=c, label=l) for _, l, c in OUTCOMES], loc="upper center",
-              bbox_to_anchor=(0.5, -0.22), ncol=3, frameon=False, fontsize=9)
+    ax.legend(
+        handles=[Patch(color=colour, label=label) for _, label, colour in OUTCOMES],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.22),
+        ncol=3,
+        frameon=False,
+        fontsize=9,
+    )
     if len(shares_by_run) > 1:
-        ax.text(0.5, -0.36,
-                f"Bars show the latest run. The mark beside each bar is the spread of the "
-                f"correct share over {len(shares_by_run)} runs.",
-                transform=ax.transAxes, ha="center", va="top", fontsize=8.5, color=MUTED)
+        ax.text(
+            0.5,
+            -0.36,
+            f"Bars show the latest run. The mark beside each bar is the spread of the "
+            f"correct share over {len(shares_by_run)} runs.",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=8.5,
+            color=MUTED,
+        )
     fig.tight_layout()
     fig.savefig(output, dpi=160)
     fig.savefig(output.with_suffix(".svg"))
@@ -228,9 +263,18 @@ def draw_tabular(
         highs = [max(v[i] for v in per_run) for i in positions]
         means = [sum(v[i] for v in per_run) / len(per_run) for i in positions]
         if len(per_run) > 1:
-            ax.fill_between(positions, lows, highs, color=PALETTE[condition], alpha=0.18, linewidth=0)
-        ax.plot(positions, means, marker="o", markersize=6, color=PALETTE[condition],
-                linewidth=2.6 if condition == "schemagate" else 1.5, label=SHORT[condition])
+            ax.fill_between(
+                positions, lows, highs, color=PALETTE[condition], alpha=0.18, linewidth=0
+            )
+        ax.plot(
+            positions,
+            means,
+            marker="o",
+            markersize=6,
+            color=PALETTE[condition],
+            linewidth=2.6 if condition == "schemagate" else 1.5,
+            label=SHORT[condition],
+        )
     ax.set_xticks(positions)
     ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylim(-4, 104)
@@ -240,12 +284,19 @@ def draw_tabular(
     title = f"Spreadsheets and CSV files, one point per file{runs_note}"
     ax.set_title(title + "\n" + model, loc="left", fontsize=11.5)
     ax.legend(frameon=False, fontsize=9, loc="center left", bbox_to_anchor=(0.02, 0.45))
-    ax.text(0.0, -0.22,
-            "SchemaGate copies the rows by code and asks the model about the headings once per "
-            "heading set, so its line is flat by design.\nThe other approaches push every row "
-            "through the model in one call: on small files the model sometimes stops early,\n"
-            "above 500 rows its output is cut off or refused.",
-            transform=ax.transAxes, ha="left", va="top", fontsize=8.5, color=MUTED)
+    ax.text(
+        0.0,
+        -0.22,
+        "SchemaGate copies the rows by code and asks the model about the headings once per "
+        "heading set, so its line is flat by design.\nThe other approaches push every row "
+        "through the model in one call: on small files the model sometimes stops early,\n"
+        "above 500 rows its output is cut off or refused.",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8.5,
+        color=MUTED,
+    )
     fig.tight_layout()
     fig.savefig(output, dpi=160)
     fig.savefig(output.with_suffix(".svg"))
@@ -257,16 +308,24 @@ def draw_cost(shares: dict[str, dict[str, float]], model: str, output: Path) -> 
     tokens = [shares[c]["tokens"] for c in CONDITIONS]
     bars = ax.bar(range(len(CONDITIONS)), tokens, color=[PALETTE[c] for c in CONDITIONS], width=0.6)
     for bar, value, condition in zip(bars, tokens, CONDITIONS, strict=True):
-        ax.text(bar.get_x() + bar.get_width() / 2, value,
-                f"{value:,.0f} tokens\n{shares[condition]['ms']:.0f} ms",
-                ha="center", va="bottom", fontsize=9)
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            value,
+            f"{value:,.0f} tokens\n{shares[condition]['ms']:.0f} ms",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
     ax.set_xticks(range(len(CONDITIONS)))
     ax.set_xticklabels([LABELS[c] for c in CONDITIONS], fontsize=9.5)
     ax.set_ylim(0, max(tokens) * 1.2)
     ax.set_ylabel("mean tokens per document, in and out")
     ax.spines[["top", "right"]].set_visible(False)
-    ax.set_title(f"What each document cost the model, with median latency\n{model}", loc="left",
-                 fontsize=11.5)
+    ax.set_title(
+        f"What each document cost the model, with median latency\n{model}",
+        loc="left",
+        fontsize=11.5,
+    )
     fig.tight_layout()
     fig.savefig(output, dpi=160)
     fig.savefig(output.with_suffix(".svg"))

@@ -133,14 +133,33 @@ PROVIDERS = {
     "openai": Provider("openai", "openai", "OPENAI_API_KEY", pdf="native", vision=True),
     "cerebras": Provider("cerebras", "openai", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1"),
     "groq": Provider("groq", "openai", "GROQ_API_KEY", "https://api.groq.com/openai/v1"),
-    "together": Provider("together", "openai", "TOGETHER_API_KEY", "https://api.together.xyz/v1",
-                         pdf="images", vision=True),
-    "fireworks": Provider("fireworks", "openai", "FIREWORKS_API_KEY",
-                          "https://api.fireworks.ai/inference/v1", pdf="images", vision=True),
-    "deepinfra": Provider("deepinfra", "openai", "DEEPINFRA_API_KEY",
-                          "https://api.deepinfra.com/v1/openai", pdf="images", vision=True),
-    "ollama": Provider("ollama", "ollama", None, "http://localhost:11434/v1", pdf="images",
-                       vision=True),
+    "together": Provider(
+        "together",
+        "openai",
+        "TOGETHER_API_KEY",
+        "https://api.together.xyz/v1",
+        pdf="images",
+        vision=True,
+    ),
+    "fireworks": Provider(
+        "fireworks",
+        "openai",
+        "FIREWORKS_API_KEY",
+        "https://api.fireworks.ai/inference/v1",
+        pdf="images",
+        vision=True,
+    ),
+    "deepinfra": Provider(
+        "deepinfra",
+        "openai",
+        "DEEPINFRA_API_KEY",
+        "https://api.deepinfra.com/v1/openai",
+        pdf="images",
+        vision=True,
+    ),
+    "ollama": Provider(
+        "ollama", "ollama", None, "http://localhost:11434/v1", pdf="images", vision=True
+    ),
 }
 
 # Models that read text only, whatever the provider. A photo cannot be sent to
@@ -251,7 +270,7 @@ def table_ddl(table: str, ddl: str) -> str:
 # --- documents -------------------------------------------------------------
 
 
-class Unsupported(Exception):
+class UnsupportedInputError(Exception):
     """The model cannot take this kind of input. Recorded, not scored."""
 
 
@@ -284,7 +303,9 @@ def text_block(text: str) -> dict[str, Any]:
     return {"type": "text", "text": f"<document>\n{text}\n</document>"}
 
 
-def document_parts(data: bytes, filename: str, spec: ModelSpec, mode: str) -> tuple[list[dict[str, Any]], str]:
+def document_parts(
+    data: bytes, filename: str, spec: ModelSpec, mode: str
+) -> tuple[list[dict[str, Any]], str]:
     """The document as one provider's API takes it, and how it was sent.
 
     `mode` is "native" for the whole-schema approaches, which send the file
@@ -299,13 +320,25 @@ def document_parts(data: bytes, filename: str, spec: ModelSpec, mode: str) -> tu
 
     if kind is FileKind.IMAGE:
         if spec.text_only:
-            raise Unsupported("images")
+            raise UnsupportedInputError("images")
         image = normalise(data)
         if api == "anthropic":
-            return [{"type": "image", "source": {"type": "base64", "media_type": image.media_type,
-                                                 "data": b64(image.data)}}], "image"
-        return [{"type": "image_url",
-                 "image_url": {"url": f"data:{image.media_type};base64,{b64(image.data)}"}}], "image"
+            return [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.media_type,
+                        "data": b64(image.data),
+                    },
+                }
+            ], "image"
+        return [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{b64(image.data)}"},
+            }
+        ], "image"
 
     # A PDF.
     how = spec.pdf_mode if mode == "native" else "text"
@@ -314,12 +347,29 @@ def document_parts(data: bytes, filename: str, spec: ModelSpec, mode: str) -> tu
         return [text_block(parsed.markdown)], "pdf_text"
     if how == "native":
         if api == "anthropic":
-            return [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
-                                                    "data": b64(data)}}], "pdf"
-        return [{"type": "file", "file": {"filename": filename,
-                                          "file_data": f"data:application/pdf;base64,{b64(data)}"}}], "pdf"
-    parts = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64(page)}"}}
-             for page in pdf_page_images(data)]
+            return [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": b64(data),
+                    },
+                }
+            ], "pdf"
+        return [
+            {
+                "type": "file",
+                "file": {
+                    "filename": filename,
+                    "file_data": f"data:application/pdf;base64,{b64(data)}",
+                },
+            }
+        ], "pdf"
+    parts = [
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64(page)}"}}
+        for page in pdf_page_images(data)
+    ]
     return parts, "pdf_images"
 
 
@@ -426,32 +476,41 @@ def build_clients(spec: ModelSpec, prices: dict[str, Price]) -> Clients:
         headers = {}
         if os.environ.get("ANTHROPIC_WORKSPACE_ID"):
             headers["anthropic-workspace-id"] = os.environ["ANTHROPIC_WORKSPACE_ID"]
-        client = anthropic.AsyncAnthropic(api_key=api_key(provider), timeout=240, max_retries=5,
-                                          default_headers=headers)
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key(provider), timeout=240, max_retries=5, default_headers=headers
+        )
         effort = reasoning_options(spec).get("output_config", {}).get("effort")
-        return Clients(spec, client, AnthropicExtractor(client, model=spec.model, effort=effort),
-                       model_prices)
+        return Clients(
+            spec, client, AnthropicExtractor(client, model=spec.model, effort=effort), model_prices
+        )
 
     import openai
 
     from schemagate.extract.openai import OpenAIExtractor
 
-    client = openai.AsyncOpenAI(api_key=api_key(provider), base_url=provider.base_url,
-                                timeout=240, max_retries=5)
+    client = openai.AsyncOpenAI(
+        api_key=api_key(provider), base_url=provider.base_url, timeout=240, max_retries=5
+    )
     extra = reasoning_options(spec)
 
     if provider.kind == "ollama":
         from schemagate.extract.factory import make_extractor
 
-        extractor = make_extractor("ollama", model=spec.model,
-                                   ollama_host=provider.base_url.removesuffix("/v1"), timeout=600)
+        extractor = make_extractor(
+            "ollama",
+            model=spec.model,
+            ollama_host=provider.base_url.removesuffix("/v1"),
+            timeout=600,
+        )
         return Clients(spec, client, extractor, model_prices)
 
     extractor = OpenAIExtractor(InjectingClient(client, extra), model=spec.model)
     return Clients(spec, client, extractor, model_prices)
 
 
-async def ask_plain(clients: Clients, parts: list[dict[str, Any]], question: str) -> tuple[str, Usage, bool]:
+async def ask_plain(
+    clients: Clients, parts: list[dict[str, Any]], question: str
+) -> tuple[str, Usage, bool]:
     """One unconstrained call, the way the naive approaches make it."""
     spec = clients.spec
     extra = reasoning_options(spec)
@@ -465,12 +524,17 @@ async def ask_plain(clients: Clients, parts: list[dict[str, Any]], question: str
         )
         text = "".join(block.text for block in response.content if block.type == "text")
         usage = response.usage
-        return text, Usage(
-            model=spec.model,
-            input_tokens=(usage.input_tokens or 0) + (getattr(usage, "cache_creation_input_tokens", 0) or 0),
-            output_tokens=usage.output_tokens or 0,
-            cached_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-        ), response.stop_reason == "max_tokens"
+        return (
+            text,
+            Usage(
+                model=spec.model,
+                input_tokens=(usage.input_tokens or 0)
+                + (getattr(usage, "cache_creation_input_tokens", 0) or 0),
+                output_tokens=usage.output_tokens or 0,
+                cached_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            ),
+            response.stop_reason == "max_tokens",
+        )
 
     completion = await clients.raw.chat.completions.create(
         model=spec.model,
@@ -486,12 +550,16 @@ async def ask_plain(clients: Clients, parts: list[dict[str, Any]], question: str
     prompt = getattr(usage, "prompt_tokens", 0) or 0
     details = getattr(usage, "prompt_tokens_details", None)
     cached = (getattr(details, "cached_tokens", 0) or 0) if details else 0
-    return text, Usage(
-        model=spec.model,
-        input_tokens=max(prompt - cached, 0),
-        output_tokens=getattr(usage, "completion_tokens", 0) or 0,
-        cached_input_tokens=cached,
-    ), choice.finish_reason == "length"
+    return (
+        text,
+        Usage(
+            model=spec.model,
+            input_tokens=max(prompt - cached, 0),
+            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            cached_input_tokens=cached,
+        ),
+        choice.finish_reason == "length",
+    )
 
 
 # --- the four approaches ---------------------------------------------------
@@ -535,7 +603,9 @@ def question(schema_text: str, table: str, instructions: str | None, ask: str) -
     return "\n\n".join(parts)
 
 
-async def run_baseline(clients: Clients, case: Case, data: bytes, ddl: str, condition: str) -> Outcome:
+async def run_baseline(
+    clients: Clients, case: Case, data: bytes, ddl: str, condition: str
+) -> Outcome:
     started = time.perf_counter()
     outcome = Outcome()
     try:
@@ -558,9 +628,9 @@ async def run_baseline(clients: Clients, case: Case, data: bytes, ddl: str, cond
             outcome.sql = split_sql(text)
         else:
             outcome.rows = parse_rows(text)
-    except Unsupported as what:
+    except UnsupportedInputError as what:
         outcome.error = f"unsupported: {what}"
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         outcome.error = f"{type(error).__name__}: {str(error)[:300]}"
     outcome.ms = int((time.perf_counter() - started) * 1000)
     return outcome
@@ -600,7 +670,7 @@ async def run_schemagate(clients: Clients, case: Case, data: bytes, schema: Tabl
         stages = [asdict(s) for s in extraction.stages]
         outcome.constrained = not any("free JSON" in s["detail"] for s in stages)
         outcome.raw = json.dumps(stages)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         outcome.error = f"{type(error).__name__}: {str(error)[:300]}"
     outcome.ms = int((time.perf_counter() - started) * 1000)
     return outcome
@@ -669,7 +739,7 @@ async def land_rows(
             record = await connection.fetchrow(sql, payload)
             await transaction.commit()
             landed.inserted.append(dict(record) if record else None)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             await transaction.rollback()
             landed.inserted.append(None)
             landed.errors.append(error_class(error))
@@ -685,13 +755,15 @@ async def land_sql(connection: asyncpg.Connection, table: str, statements: list[
             await connection.execute(statement)
             await transaction.commit()
             landed.inserted.append({})
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             await transaction.rollback()
             landed.inserted.append(None)
             landed.errors.append(error_class(error))
     records = await connection.fetch(f"SELECT * FROM public.{table} ORDER BY id")
     stored = [dict(record) for record in records]
-    landed.inserted = [stored.pop(0) if row is not None and stored else row for row in landed.inserted]
+    landed.inserted = [
+        stored.pop(0) if row is not None and stored else row for row in landed.inserted
+    ]
     return landed
 
 
@@ -723,8 +795,10 @@ def same(stored: Any, expected: Any, column_type: str) -> bool:
     if column_type == "date":
         stored_text = stored.isoformat() if isinstance(stored, dt.date) else str(stored)
         return stored_text[:10] == str(expected)[:10]
-    return re.sub(r"\s+", " ", str(stored)).strip().casefold() == \
-        re.sub(r"\s+", " ", str(expected)).strip().casefold()
+    return (
+        re.sub(r"\s+", " ", str(stored)).strip().casefold()
+        == re.sub(r"\s+", " ", str(expected)).strip().casefold()
+    )
 
 
 @dataclass
@@ -775,8 +849,13 @@ class Score:
 
 
 def score(
-    case: Case, model: str, condition: str, outcome: Outcome, landed: Landed | None,
-    schema: TableSchema, prices: dict[str, Price],
+    case: Case,
+    model: str,
+    condition: str,
+    outcome: Outcome,
+    landed: Landed | None,
+    schema: TableSchema,
+    prices: dict[str, Price],
 ) -> Score:
     types = {column.name: column.data_type for column in schema.columns}
     result = Score(case=case.id, kind=case.kind, table=case.table, model=model, condition=condition)
@@ -791,7 +870,9 @@ def score(
     result.input_tokens = spend.input_tokens + spend.cached_input_tokens
     result.output_tokens = spend.output_tokens
     result.cost_usd = None if spend.cost_usd is None else str(spend.cost_usd)
-    result.flags = len(outcome.flagged) + sum(1 for rule in outcome.flag_rules if rule == "arithmetic")
+    result.flags = len(outcome.flagged) + sum(
+        1 for rule in outcome.flag_rules if rule == "arithmetic"
+    )
     if case.expected_flags:
         result.inconsistency_caught = "arithmetic" in outcome.flag_rules
 
@@ -858,8 +939,12 @@ def result_path(spec: ModelSpec, condition: str, case_id: str) -> Path:
 
 
 async def run_one(
-    connection: asyncpg.Connection, clients: Clients, condition: str, case: Case,
-    schema: TableSchema, ddl: str,
+    connection: asyncpg.Connection,
+    clients: Clients,
+    condition: str,
+    case: Case,
+    schema: TableSchema,
+    ddl: str,
 ) -> Score:
     data = (DATA / case.file).read_bytes()
     columns = {column.name: column.data_type for column in schema.columns}
@@ -885,8 +970,12 @@ async def run_one(
     path = result_path(clients.spec, condition, case.id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"score": asdict(scored), "raw": outcome.raw[:6000], "sql": outcome.sql[:3]},
-                   ensure_ascii=False, indent=1, default=str),
+        json.dumps(
+            {"score": asdict(scored), "raw": outcome.raw[:6000], "sql": outcome.sql[:3]},
+            ensure_ascii=False,
+            indent=1,
+            default=str,
+        ),
         encoding="utf-8",
     )
     return scored
@@ -897,7 +986,9 @@ def load_cases() -> list[Case]:
     return [Case(**json.loads(line)) for line in lines if line.strip()]
 
 
-async def perfect_run(connection: asyncpg.Connection, cases: list[Case], schemas: dict[str, TableSchema]) -> None:
+async def perfect_run(
+    connection: asyncpg.Connection, cases: list[Case], schemas: dict[str, TableSchema]
+) -> None:
     """Feed the expected rows straight to the database.
 
     Proves the ground truth is insertable and scores 100%, so a miss in a real
@@ -913,11 +1004,20 @@ async def perfect_run(connection: asyncpg.Connection, cases: list[Case], schemas
             landed = await land_rows(connection, case.table, columns, case.expected)
         finally:
             await outer.rollback()
-        scored = score(case, "none", "perfect", Outcome(rows=case.expected), landed, schemas[case.table], {})
+        scored = score(
+            case, "none", "perfect", Outcome(rows=case.expected), landed, schemas[case.table], {}
+        )
         total += scored.cells
         if scored.correct != scored.cells:
             bad += 1
-            print(case.id, scored.correct, "/", scored.cells, scored.insert_errors, scored.wrong_examples)
+            print(
+                case.id,
+                scored.correct,
+                "/",
+                scored.cells,
+                scored.insert_errors,
+                scored.wrong_examples,
+            )
     print(f"perfect run: {len(cases)} cases, {total} cells, {bad} cases not fully correct")
 
 
@@ -957,18 +1057,23 @@ async def main_run(args: argparse.Namespace) -> None:
                     if path.exists() and not args.redo:
                         continue
                     if spent >= Decimal(str(args.budget_usd)):
-                        print(f"Stopped: ${spent:.4f} spent, budget is ${args.budget_usd}. "
-                              f"Raise --budget-usd to continue; finished cases are kept.")
+                        print(
+                            f"Stopped: ${spent:.4f} spent, budget is ${args.budget_usd}. "
+                            f"Raise --budget-usd to continue; finished cases are kept."
+                        )
                         return
-                    scored = await run_one(connection, clients, condition, case, schemas[case.table], ddl)
+                    scored = await run_one(
+                        connection, clients, condition, case, schemas[case.table], ddl
+                    )
                     cost = Decimal(scored.cost_usd) if scored.cost_usd is not None else None
                     if cost is not None:
                         spent += cost
                     shown_cost = f"${cost:.4f}" if cost is not None else "unpriced"
                     print(
                         f"{spec.label:<28} {condition:<17} {case.id:<8} "
-                        f"{scored.correct}/{scored.cells} correct, {scored.wrong_silent} wrong, {scored.wrong_null} blank, "
-                        f"{scored.rows_rejected} rows rejected, {scored.input_tokens}+{scored.output_tokens} tok, "
+                        f"{scored.correct}/{scored.cells} correct, {scored.wrong_silent} wrong, "
+                        f"{scored.wrong_null} blank, {scored.rows_rejected} rows rejected, "
+                        f"{scored.input_tokens}+{scored.output_tokens} tok, "
                         f"{shown_cost}, {scored.ms} ms, run total ${spent:.3f}"
                         + (f"  {scored.error}" if scored.error else ""),
                         flush=True,
@@ -1012,10 +1117,18 @@ def report() -> str:
         lines.append("")
         lines.append("Documents that need a model (invoices, statements, line items, receipts):")
         lines.append("")
-        lines.append("| approach | docs | cells correct | wrong value stored | left blank | flagged | held for review | rejected by DB | missing | rows inserted | phantom cols | inconsistent docs caught | median ms | tokens in | tokens out | cost |")
+        lines.append(
+            "| approach | docs | cells correct | wrong value stored | left blank | flagged "
+            "| held for review | rejected by DB | missing | rows inserted | phantom cols "
+            "| inconsistent docs caught | median ms | tokens in | tokens out | cost |"
+        )
         lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for condition in CONDITIONS:
-            group = [s for s in groups.get((model, condition), []) if s.kind != "tabular" and not s.unsupported]
+            group = [
+                s
+                for s in groups.get((model, condition), [])
+                if s.kind != "tabular" and not s.unsupported
+            ]
             if not group:
                 continue
             cells = sum(s.cells for s in group)
@@ -1036,32 +1149,49 @@ def report() -> str:
         lines.append("")
         sent = Counter((s.condition, s.sent_as) for s in scores if s.model == model and s.sent_as)
         if sent:
-            lines.append("How the document was sent: " + ", ".join(
-                f"{condition} as {how} ({count})" for (condition, how), count in sorted(sent.items())))
+            lines.append(
+                "How the document was sent: "
+                + ", ".join(
+                    f"{condition} as {how} ({count})"
+                    for (condition, how), count in sorted(sent.items())
+                )
+            )
             lines.append("")
-        free = [s for s in scores if s.model == model and s.condition == "schemagate" and s.constrained is False]
+        free = [
+            s
+            for s in scores
+            if s.model == model and s.condition == "schemagate" and s.constrained is False
+        ]
         if free:
-            lines.append(f"The provider returned free JSON rather than constrained output on "
-                         f"{len(free)} schemagate cases; the gate checked them instead.")
+            lines.append(
+                f"The provider returned free JSON rather than constrained output on "
+                f"{len(free)} schemagate cases; the gate checked them instead."
+            )
             lines.append("")
         tabular = [s for s in scores if s.model == model and s.kind == "tabular"]
         if tabular:
             lines.append("Spreadsheets and CSV files:")
             lines.append("")
-            lines.append("| approach | case | rows | cells correct | wrong value stored | left blank | rejected | missing | truncated | ms | tokens in | tokens out | cost |")
+            lines.append(
+                "| approach | case | rows | cells correct | wrong value stored | left blank "
+                "| rejected | missing | truncated | ms | tokens in | tokens out | cost |"
+            )
             lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
             for s in sorted(tabular, key=lambda s: (s.case, CONDITIONS.index(s.condition))):
                 lines.append(
                     f"| {s.condition} | {s.case} | {s.rows_inserted}/{s.rows_expected} "
-                    f"| {pct(s.correct, s.cells)} | {s.wrong_silent} | {s.wrong_null} | {s.rejected} | {s.missing} "
-                    f"| {'yes' if s.truncated else ''} | {s.ms} | {s.input_tokens} | {s.output_tokens} "
+                    f"| {pct(s.correct, s.cells)} | {s.wrong_silent} | {s.wrong_null} "
+                    f"| {s.rejected} | {s.missing} | {'yes' if s.truncated else ''} "
+                    f"| {s.ms} | {s.input_tokens} | {s.output_tokens} "
                     f"| {money_sum([s])} |"
                 )
             lines.append("")
         skipped = [s for s in scores if s.model == model and s.unsupported]
         if skipped:
             by = Counter(s.error for s in skipped)
-            lines.append("Not attempted: " + ", ".join(f"{count} cases, {why}" for why, count in by.items()))
+            lines.append(
+                "Not attempted: " + ", ".join(f"{count} cases, {why}" for why, count in by.items())
+            )
             lines.append("")
         errors = [s for s in scores if s.model == model and s.error and not s.unsupported]
         if errors:
@@ -1079,12 +1209,21 @@ def report() -> str:
             lines.append("")
             for condition in CONDITIONS:
                 if classes.get(condition):
-                    lines.append(f"- {condition}: " + ", ".join(f"{k} {v}" for k, v in classes[condition].most_common()))
+                    lines.append(
+                        f"- {condition}: "
+                        + ", ".join(f"{k} {v}" for k, v in classes[condition].most_common())
+                    )
             lines.append("")
-        lines.append("Examples of values stored wrong or left blank without anything flagging them:")
+        lines.append(
+            "Examples of values stored wrong or left blank without anything flagging them:"
+        )
         lines.append("")
         for condition in CONDITIONS:
-            examples = [f"{s.case} {e}" for s in groups.get((model, condition), []) for e in s.wrong_examples]
+            examples = [
+                f"{s.case} {e}"
+                for s in groups.get((model, condition), [])
+                for e in s.wrong_examples
+            ]
             if examples:
                 lines.append(f"- {condition}:")
                 lines.extend(f"  - {e}" for e in examples[:10])
@@ -1097,16 +1236,29 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run")
     run.add_argument("--dsn", default=os.environ.get("BENCH_DSN", DEFAULT_DSN))
-    run.add_argument("--models", nargs="+", default=["anthropic:claude-haiku-4-5"],
-                     help="provider:model, for example cerebras:gpt-oss-120b or ollama:qwen3.5:4b")
+    run.add_argument(
+        "--models",
+        nargs="+",
+        default=["anthropic:claude-haiku-4-5"],
+        help="provider:model, for example cerebras:gpt-oss-120b or ollama:qwen3.5:4b",
+    )
     run.add_argument("--conditions", nargs="+", default=list(CONDITIONS))
     run.add_argument("--kinds", nargs="*")
     run.add_argument("--cases", nargs="*")
     run.add_argument("--limit", type=int, default=0)
-    run.add_argument("--max-tabular-rows", type=int, default=2000,
-                     help="Tabular files above this many rows run through schemagate only.")
-    run.add_argument("--budget-usd", type=float, default=1.0,
-                     help="Stop the run once this much has been spent. Default $1. Unpriced models count as free.")
+    run.add_argument(
+        "--max-tabular-rows",
+        type=int,
+        default=2000,
+        help="Tabular files above this many rows run through schemagate only.",
+    )
+    run.add_argument(
+        "--budget-usd",
+        type=float,
+        default=1.0,
+        help="Stop the run once this much has been spent. Default $1. "
+        "Unpriced models count as free.",
+    )
     run.add_argument("--redo", action="store_true")
     run.add_argument("--perfect", action="store_true", help="Insert the expected rows and stop.")
     sub.add_parser("report")
