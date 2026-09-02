@@ -469,8 +469,9 @@ WHO_WE_ARE = (
 
 INSTRUCTIONS = {
     "invoices": (
-        "One row per invoice, not one per line item. subtotal is the net amount after "
-        "any discount and before tax, and total is the amount due. Take the invoice "
+        "One row per invoice, not one per line item. subtotal is the net amount of the goods "
+        "after any discount, before shipping and before tax; shipping is the freight or "
+        "shipping charge, 0 when there is none; total is the amount due. Take the invoice "
         f"date, not the delivery date or the due date. {WHO_WE_ARE}"
     ),
     "statement": (
@@ -492,7 +493,7 @@ INSTRUCTIONS = {
 # line's quantity times its price is its total.
 RULES = {
     "invoices": [
-        {"terms": ["subtotal", "tax"], "equals": "total"},
+        {"terms": ["subtotal", "shipping", "tax"], "equals": "total"},
         {"column": "vat_id", "reject": [BUYER["vat"]]},
         {"column": "supplier", "reject": [BUYER["name"]]},
         {"column": "vat_id", "pattern": "[A-Z]{2}[A-Z0-9]{2,12}"},
@@ -606,7 +607,8 @@ class Invoice:
             "supplier": self.supplier["name"],
             "vat_id": self.supplier["vat"],
             "currency": self.supplier["ccy"],
-            "subtotal": str(self.subtotal),
+            "subtotal": str(self.net_lines - self.discount),
+            "shipping": f"{self.shipping or Decimal(0):.2f}",
             "tax": str(self.tax),
             "total": str(self.printed_total),
             "issued_on": self.issued.isoformat(),
@@ -1339,9 +1341,10 @@ def theme_formal_de(pdf: Pdf, inv: Invoice) -> None:
                 False,
             )
         )
+    rows.append(("Nettobetrag", money(inv.net_lines - inv.discount, loc, ccy), False))
     if inv.shipping:
         rows.append(("zzgl. Versandkosten", money(inv.shipping, loc, ccy), False))
-    rows.append(("Nettobetrag", money(inv.subtotal, loc, ccy), False))
+
     for rate, amount in sorted(inv.tax_by_rate.items(), reverse=True):
         rows.append((f"zzgl. {number(rate, loc)}% MwSt", money(amount, loc, ccy), False))
     rows.append(("Gesamtbetrag", money(inv.printed_total, loc, ccy), True))
@@ -1884,7 +1887,11 @@ TABULAR_HEADERS = {
 
 
 def tabular_rows(rng: random.Random, count: int, start: int) -> list[Invoice]:
-    return [make_invoice(rng, rng.choice(SUPPLIERS), start + index) for index in range(count)]
+    rows = [make_invoice(rng, rng.choice(SUPPLIERS), start + index) for index in range(count)]
+    # An export carries one net figure per invoice and no shipping column.
+    for row in rows:
+        row.shipping = None
+    return rows
 
 
 def write_tabular(
@@ -1984,6 +1991,8 @@ def main() -> None:
         for _ in range(rng.randint(3, 6)):
             sequence += rng.randint(1, 9)
             invoice = make_invoice(rng, supplier, sequence)
+            # A statement prints one net figure per invoice, so these carry no shipping.
+            invoice.shipping = None
             invoices.append(invoice)
             entries.append(invoice)
         if variant in {"typed", "balance"}:

@@ -155,6 +155,7 @@ CREATE TABLE invoices (
     subtotal        numeric(12, 2) NOT NULL,
     tax             numeric(12, 2) NOT NULL,
     total           numeric(12, 2) NOT NULL,
+    shipping        numeric(12, 2) NOT NULL DEFAULT 0,
     issued_on       date NOT NULL,
     due_on          date,
     po_reference    varchar(32),
@@ -163,9 +164,10 @@ CREATE TABLE invoices (
 );
 COMMENT ON COLUMN invoices.invoice_number IS 'The number the supplier assigned, exactly as printed.';
 COMMENT ON COLUMN invoices.supplier IS 'Legal name of the company that issued the invoice, not the company being billed.';
-COMMENT ON COLUMN invoices.vat_id IS 'Seller VAT number, not the buyer. Null when the invoice does not carry one.';
+COMMENT ON COLUMN invoices.vat_id IS 'The seller''s VAT or organisation number as printed, whatever it is labelled: Momsreg.nr, USt-IdNr., VAT Reg No, Org.nr. Never the buyer''s. Null only when the document carries none.';
 COMMENT ON COLUMN invoices.currency IS 'ISO 4217 code of the amounts on the invoice.';
-COMMENT ON COLUMN invoices.subtotal IS 'Net amount after any discount and before tax.';
+COMMENT ON COLUMN invoices.subtotal IS 'Net amount of the goods and services after any discount, before shipping and before tax.';
+COMMENT ON COLUMN invoices.shipping IS 'Shipping, freight or carriage charged, before tax. 0 when the invoice has none.';
 COMMENT ON COLUMN invoices.tax IS 'Total VAT charged.';
 COMMENT ON COLUMN invoices.total IS 'Amount due.';
 COMMENT ON COLUMN invoices.issued_on IS 'Invoice date. Not the due date and not the delivery date.';
@@ -186,10 +188,11 @@ CREATE TABLE invoice_lines (
 );
 COMMENT ON COLUMN invoice_lines.invoice_number IS 'The invoice this line belongs to, as printed on it.';
 COMMENT ON COLUMN invoice_lines.line_no IS 'Position of the line on the invoice, counting from 1.';
-COMMENT ON COLUMN invoice_lines.quantity IS 'Quantity as printed.';
+COMMENT ON COLUMN invoice_lines.quantity IS 'Quantity as printed, without the unit.';
+COMMENT ON COLUMN invoice_lines.description IS 'The item text only, without a position number or article number in front of it.';
 COMMENT ON COLUMN invoice_lines.unit_price IS 'Price per unit before tax.';
 COMMENT ON COLUMN invoice_lines.line_total IS 'Net amount for the line before tax.';
-COMMENT ON COLUMN invoice_lines.tax_rate IS 'VAT rate for the line in percent, when printed.';
+COMMENT ON COLUMN invoice_lines.tax_rate IS 'VAT rate for the line in percent, from the line''s own rate column when there is one.';
 
 CREATE TABLE credit_notes (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

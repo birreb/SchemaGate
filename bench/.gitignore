@@ -3,3 +3,4 @@ data/
 results/raw*/
 results/*.log
 results/summary_run*.md
+results_audit/

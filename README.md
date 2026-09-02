@@ -135,12 +135,12 @@ were not attempted and every approach read the same text layer.
 
 | Approach | Cells correct | Wrong value stored | Flagged or held | Rejected by DB | Inconsistent invoices caught | Tokens per document | Cost per document |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 88% | 39 to 56 | 0 | 70 to 76 | 0 of 5 | 3,700 | 0.15¢ |
-| whole schema + document, SQL | 89% | 38 to 51 | 0 | 0 | 0 of 5 | 3,780 | 0.16¢ |
-| one table + text, free JSON | 87 to 88% | 44 to 48 | 0 | 70 to 82 | 0 of 5 | 1,520 | 0.07¢ |
-| SchemaGate | 90 to 92% | 5 to 10 | 43 to 69 | 0 | 5 of 5 | 1,690 | 0.08¢ |
+| whole schema + document, JSON | 90 to 91% | 14 to 34 | 0 | 44 to 83 | 0 of 5 | 3,860 | 0.16¢ |
+| whole schema + document, SQL | 90 to 92% | 11 to 26 | 0 | 0 | 0 of 5 | 3,940 | 0.16¢ |
+| one table + text, free JSON | 91% | 18 to 27 | 0 | 83 | 0 of 5 | 1,630 | 0.08¢ |
+| SchemaGate | 91 to 92% | 2 to 3 | 63 to 81 | 0 | 5 of 5 | 1,780 | 0.08¢ |
 
-70 documents, 1,718 cells with a known value. Ranges are the two runs. Cost is at Cerebras's
+70 documents, 1,538 cells with a known value. Ranges are the two runs. Cost is at Cerebras's
 published price for gpt-oss-120b; on a frontier model the same token counts cost 25 to 60
 times more, in the same proportions.
 
@@ -148,13 +148,13 @@ times more, in the same proportions.
 
 ![Cells that reached the table, per spreadsheet](bench/results/chart_tabular.png)
 
-Reading accuracy is close: the naive approaches read 87 to 89% of cells, SchemaGate 90 to
-92%, and it is the same model on the same text. What differs is what happens to a wrong
-value: SchemaGate stored 5 to 10 of them in 1,718 cells, flagged or held 43 to 69 for a
-person, and had no row rejected by the database. The other approaches stored 38 to 56 and
-flagged nothing. On spreadsheets the rows never reach a model: 100% of 4,000 rows for less
-than a tenth of a cent in total, where the naive approaches are unreliable from 200 rows and
-cost 8 to 16 cents.
+Reading accuracy is the same for every approach, 90 to 92% of cells, since it is the same
+model on the same text with the same column comments. What differs is what happens to a wrong
+value: SchemaGate stored 2 to 3 of them in 1,538 cells, flagged or held 63 to 81 for a
+person, and had no row rejected by the database. The other approaches stored 11 to 34 and
+flagged nothing. On spreadsheets the rows never reach a model: 100% of 4,000 rows for a tenth
+of a cent in total, where the naive approaches are unreliable from 200 rows and cost 8 to 15
+cents.
 
 ## Built on
 

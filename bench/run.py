@@ -82,7 +82,8 @@ from schemagate.validate.rules import parse_rule  # noqa: E402
 
 DEFAULT_DSN = "postgresql://bench:bench@localhost:55433/erp"
 DATA = ROOT / "data"
-RESULTS = ROOT / "results"
+# A different directory for an audit run, so published results stay as they were.
+RESULTS = Path(os.environ.get("BENCH_RESULTS", ROOT / "results"))
 CONDITIONS = ("whole_schema", "whole_schema_sql", "one_table_text", "schemagate")
 
 # Room for a large file's worth of rows, so the naive approaches are not cut
@@ -593,6 +594,7 @@ class Outcome:
     sent_as: str = ""
     constrained: bool | None = None
     raw: str = ""
+    failures: list[str] = field(default_factory=list)
 
 
 def question(schema_text: str, table: str, instructions: str | None, ask: str) -> str:
@@ -665,6 +667,9 @@ async def run_schemagate(clients: Clients, case: Case, data: bytes, schema: Tabl
                     operands = rule.get("terms") or rule.get("factors") or []
                     outcome.flagged.update((failure.row, c) for c in (*operands, rule["equals"]))
         outcome.flag_rules = [f.rule for f in extraction.failures]
+        outcome.failures = [
+            f"row {f.row} {f.column or '*'} {f.rule}: {f.detail}" for f in extraction.failures
+        ]
         outcome.usage = list(extraction.spend.by_model)
         outcome.sent_as = extraction.route.value
         stages = [asdict(s) for s in extraction.stages]
@@ -971,7 +976,13 @@ async def run_one(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
-            {"score": asdict(scored), "raw": outcome.raw[:6000], "sql": outcome.sql[:3]},
+            {
+                "score": asdict(scored),
+                "raw": outcome.raw[:6000],
+                "sql": outcome.sql[:3],
+                "rows": outcome.rows[:80],
+                "failures": outcome.failures,
+            },
             ensure_ascii=False,
             indent=1,
             default=str,
