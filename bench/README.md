@@ -100,6 +100,12 @@ would write: who the buyer is, and that a statement's header VAT number applies 
 What differs is the schema it was given, whether the output was constrained, and whether
 anything checked the values. Each run cost about 80 cents.
 
+Reading accuracy is the same for every approach, so the first chart shows only the cells that
+did not land correctly, about 9% of the total, and what became of them. The second shows every
+cell.
+
+![The cells that did not land correctly, and what became of them](results/chart_misses.png)
+
 ![What happened to each value in the documents a model read](results/chart_documents.png)
 
 Documents that need a model: 70 cases, 172 rows, 1,538 cells. Where the two runs differ the

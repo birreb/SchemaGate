@@ -1,5 +1,7 @@
 """Draw the benchmark results as three figures.
 
+    chart_misses.png      only the cells that did not land correctly, as counts,
+                          since reading accuracy is the same for every approach
     chart_documents.png   what happened to every cell of the documents a model
                           read, one stacked bar per approach, with the spread
                           between runs marked where more than one run is on disk
@@ -97,6 +99,7 @@ def document_shares(scores: list[dict[str, Any]], model: str) -> dict[str, dict[
         ]
         cells = sum(s["cells"] for s in group) or 1
         shares[condition] = {
+            "cells": cells,
             "correct": sum(s["correct"] for s in group) / cells,
             "flagged": sum(s["wrong_flagged"] + s.get("held", 0) for s in group) / cells,
             "wrong_silent": sum(s["wrong_silent"] for s in group) / cells,
@@ -225,6 +228,87 @@ def draw_documents(
     plt.close(fig)
 
 
+MISSES = [
+    ("wrong_silent", "wrong value stored, nothing flagged it", "#9b3b2e"),
+    ("wrong_null", "left blank, nothing flagged it", "#b8c4cc"),
+    ("rejected", "row rejected by the database", "#4a5661"),
+    ("missing", "row never came back", "#e6e9e7"),
+    ("flagged", "flagged or held for a person", "#d9a441"),
+]
+
+
+def draw_misses(
+    shares_by_run: dict[str, dict[str, dict[str, float]]], model: str, output: Path
+) -> None:
+    """Only the cells that did not land correctly, as counts.
+
+    Reading accuracy is the same for every approach, so the first chart's bars
+    look alike. What differs is what became of the cells that were not read
+    correctly, and that is a few percent of the total, invisible at full scale.
+    Here they are on their own, averaged over the runs on disk.
+    """
+    runs = list(shares_by_run.values())
+    cells = runs[0][CONDITIONS[0]]["cells"]
+
+    def mean(condition: str, key: str) -> float:
+        return sum(r[condition][key] * r[condition]["cells"] for r in runs) / len(runs)
+
+    fig, ax = plt.subplots(figsize=(9, 5.8))
+    x = list(range(len(CONDITIONS)))
+    bottoms = [0.0] * len(CONDITIONS)
+    for key, _, colour in MISSES:
+        values = [mean(c, key) for c in CONDITIONS]
+        ax.bar(x, values, bottom=bottoms, color=colour, width=0.6, edgecolor="white", linewidth=0.6)
+        for index, value in enumerate(values):
+            if value >= 6:
+                dark = key in {"wrong_silent", "rejected"}
+                ax.text(
+                    index,
+                    bottoms[index] + value / 2,
+                    f"{value:.0f}",
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color="white" if dark else INK,
+                )
+        bottoms = [b + v for b, v in zip(bottoms, values, strict=True)]
+    for index, condition in enumerate(CONDITIONS):
+        wrong = mean(condition, "wrong_silent")
+        ax.text(
+            index,
+            bottoms[index] + 3,
+            f"{wrong:.0f} wrong values stored",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#9b3b2e",
+            fontweight="bold",
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels([LABELS[c] for c in CONDITIONS], fontsize=9.5)
+    ax.set_ylabel(f"cells, out of {cells:,} expected")
+    ax.set_ylim(0, max(bottoms) * 1.18)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_title(
+        "The cells that did not land correctly, and what became of them\n"
+        f"{model}, mean of {len(runs)} runs, same model in every approach",
+        loc="left",
+        fontsize=11.5,
+    )
+    ax.legend(
+        handles=[Patch(color=colour, label=label) for _, label, colour in MISSES],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.22),
+        ncol=2,
+        frameon=False,
+        fontsize=9,
+    )
+    fig.tight_layout()
+    fig.savefig(output, dpi=160)
+    fig.savefig(output.with_suffix(".svg"))
+    plt.close(fig)
+
+
 def draw_tabular(
     runs: dict[str, list[dict[str, Any]]], latest: str, model: str, output: Path
 ) -> None:
@@ -341,13 +425,15 @@ def draw() -> list[Path]:
     plt.rcParams.update(STYLE)
     shares_by_run = {name: document_shares(scores, model) for name, scores in runs.items()}
     outputs = [
+        RESULTS / "chart_misses.png",
         RESULTS / "chart_documents.png",
         RESULTS / "chart_tabular.png",
         RESULTS / "chart_cost.png",
     ]
-    draw_documents(shares_by_run, latest, model, outputs[0])
-    draw_tabular(runs, latest, model, outputs[1])
-    draw_cost(shares_by_run[latest], model, outputs[2])
+    draw_misses(shares_by_run, model, outputs[0])
+    draw_documents(shares_by_run, latest, model, outputs[1])
+    draw_tabular(runs, latest, model, outputs[2])
+    draw_cost(shares_by_run[latest], model, outputs[3])
     return outputs
 
 

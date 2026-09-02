@@ -131,6 +131,12 @@ have a printed total that does not add up. Method, documents and the full result
 Two runs with gpt-oss-120b on Cerebras, 2 September 2026. A text-only model, so the receipts
 were not attempted and every approach read the same text layer.
 
+Reading accuracy is the same for every approach, since it is the same model on the same text.
+The difference is in the cells that did not land correctly, about 9% of the total, and what
+became of them:
+
+![The cells that did not land correctly, and what became of them](bench/results/chart_misses.png)
+
 ![What happened to each value in the documents a model read](bench/results/chart_documents.png)
 
 | Approach | Cells correct | Wrong value stored | Flagged or held | Rejected by DB | Inconsistent invoices caught | Tokens per document | Cost per document |
