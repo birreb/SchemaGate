@@ -475,7 +475,10 @@ INSTRUCTIONS = {
     ),
     "statement": (
         "One row per invoice listed. Credit notes are not invoices and get no row. "
-        f"The supplier is the company that issued the statement. {WHO_WE_ARE}"
+        "The statement lists several invoices in one table; return one row for every invoice "
+        "line in that table, and no fewer. The supplier is the company that issued the "
+        "statement, and its VAT number is printed once in the header and applies to every "
+        f"row. {WHO_WE_ARE}"
     ),
     "invoice_lines": (
         "One row per line item, in the order printed. Skip discount, shipping and total "

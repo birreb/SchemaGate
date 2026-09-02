@@ -87,8 +87,9 @@ Two full runs on 2 September 2026 with gpt-oss-120b on Cerebras, the same model 
 approach. A text-only model, so the 12 receipt photographs were not attempted and the
 whole-schema approaches were handed each PDF's text layer rather than the PDF. Every approach
 therefore read the same text, and what differs is the schema it was given, whether the output
-was constrained, and whether anything checked the values. Every approach was also told who the
-buyer is, since an operator would. Each run cost about 75 cents.
+was constrained, and whether anything checked the values. Every approach was also given the
+same two sentences an operator would write: who the buyer is, and that a statement's header
+VAT number applies to every row. Each run cost about 75 cents.
 
 ![What happened to each value in the documents a model read](results/chart_documents.png)
 
@@ -97,10 +98,10 @@ range is given.
 
 | Approach | Cells correct | Wrong value stored | Left blank | Flagged | Held for review | Rejected by DB | Rows never returned | Inconsistent invoices caught | Tokens per document | Cost per document |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 87% | 43 to 48 | 61 to 63 | 0 | 0 | 70 to 80 | 0 to 10 | 0 of 5 | 3,680 | 0.15¢ |
-| whole schema + document, SQL | 85 to 87% | 30 to 49 | 51 to 65 | 0 | 0 | 0 | 76 to 135 | 0 of 5 | 3,770 | 0.16¢ |
-| one table + text, free JSON | 87 to 88% | 35 to 39 | 63 to 64 | 0 | 0 | 46 to 62 | 30 | 0 of 5 | 1,510 | 0.07¢ |
-| SchemaGate | 87 to 89% | 7 to 9 | 52 | 33 to 35 | 6 | 0 | 60 to 90 | 5 of 5 | 1,660 | 0.08¢ |
+| whole schema + document, JSON | 88% | 39 to 56 | 53 to 55 | 0 | 0 | 70 to 76 | 0 | 0 of 5 | 3,700 | 0.15¢ |
+| whole schema + document, SQL | 89% | 38 to 51 | 39 to 47 | 0 | 0 | 0 | 70 to 80 | 0 of 5 | 3,780 | 0.16¢ |
+| one table + text, free JSON | 87 to 88% | 44 to 48 | 59 to 60 | 0 | 0 | 70 to 82 | 0 | 0 of 5 | 1,520 | 0.07¢ |
+| SchemaGate | 90 to 92% | 5 to 10 | 25 to 29 | 32 to 40 | 11 to 29 | 0 | 20 to 60 | 5 of 5 | 1,690 | 0.08¢ |
 
 ![Tokens and latency per document](results/chart_cost.png)
 
@@ -110,9 +111,9 @@ Spreadsheets and CSV files, six cases from 50 to 2,000 rows:
 
 | Approach | 50 rows | 200 rows, German headings | 200 rows, English headings | 500 rows | 1,000 rows | 2,000 rows | Cost for the six files |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 100% | 100% | 100% | 0% | 0% | 0% | 14¢ |
-| whole schema + document, SQL | 100% | 100% | 100% | 33 to 80% | 1 to 6% | 0 to 5% | 13 to 15¢ |
-| one table + text, free JSON | 100% | 99 to 100% | 5 to 99% | 2 to 74% | 0% | 0% | 12¢ |
+| whole schema + document, JSON | 100% | 5 to 100% | 0 to 100% | 0% | 0% | 0 to 1% | 8 to 14¢ |
+| whole schema + document, SQL | 100% | 100% | 91 to 100% | 8 to 12% | 8 to 34% | 7 to 9% | 14 to 16¢ |
+| one table + text, free JSON | 100% | 100% | 0 to 10% | 0% | 0 to 30% | 0% | 11 to 12¢ |
 | SchemaGate | 100% | 100% | 100% | 100% | 100% | 100% | 0.08¢ |
 
 SchemaGate reads the six files in 8 to 56 ms each. The two files with matching English
@@ -121,13 +122,14 @@ cached for the next file with the same headings.
 
 What the numbers say:
 
-- Reading accuracy is a tie. Every approach reads 85 to 89% of cells, and the spread between two runs of the same approach is as wide as the spread between approaches. With the same model and the same text, narrowing the schema and constraining the output did not make the model read better.
-- What happens to a wrong value is not a tie. SchemaGate stored 7 to 9 wrong values in 1,718 cells, half a percent. The other approaches stored 30 to 49. The difference is the 39 to 41 cells SchemaGate flagged or held for a person, which no other approach can report, and Postgres rejected none of its rows.
+- Reading accuracy is close, and SchemaGate is now ahead by a little. The three naive approaches read 87 to 89% of cells, SchemaGate 90 to 92%, with the spread between two runs of one approach about two points. The lead comes from rows the gate kept whole where the others lost them to type errors, not from the model reading better: it is the same model on the same text.
+- What happens to a wrong value is not close. SchemaGate stored 5 to 10 wrong values in 1,718 cells, under one percent. The other approaches stored 38 to 56. SchemaGate flagged or held 43 to 69 for a person, which no other approach can report, and Postgres rejected none of its rows. The naive JSON approaches lost 70 to 82 cells to type and not-null errors a caller would have to decode.
 - The five invoices whose totals do not add up were reported in both runs, five of five. No other approach can notice this.
-- Telling every approach who the buyer is helped every approach. Wrong values fell from 78 to 99 in the earlier runs to 30 to 49 once the instructions named the buyer's company and VAT number. The rules that reject those values as a supplier's, and the product rule on line items, took SchemaGate from 57 to 7 to 9.
-- What is still wrong. A position or article number glued to a line description on two monospaced invoices, two tax rates on a mixed-rate invoice, and one delivery date taken as the invoice date. None has a rule yet.
-- Left blank is the remaining cost of caution. SchemaGate stored NULL for 52 values the documents carried, mostly the seller VAT number on statements, where the model now declines to guess. A blank is visible on review; the other approaches stored the buyer's number instead.
-- Spreadsheets are not a contest. Rows are copied by code and cannot be dropped or altered, one heading match is cached per supplier, and 4,000 rows cost less than a tenth of a cent in total. The naive approaches collapse above 200 rows: the model stops early, refuses, or its JSON is cut off.
+- Instructions helped everyone; rules helped only the approach that has them. Telling every approach who the buyer is, and that a statement's header VAT number applies to every row, cut wrong values and blanks for all four. The rules that reject the buyer's details as a supplier's, and the product rule on line items, took SchemaGate from 57 wrong values to 5 to 10.
+- What is still wrong. A position or article number glued to a line description on two monospaced invoices, a tax rate on a mixed-rate invoice, and a delivery date taken as the invoice date. None has a rule yet, and a text column cannot have an arithmetic one.
+- Left blank is the remaining cost of caution. SchemaGate stored NULL for 25 to 29 values the documents carried, down from 52 before the statement instruction. A blank is visible on review; the other approaches left 39 to 60 blank and stored the buyer's number in others.
+- Held for review is the gate refusing a misread. On the densest monospaced statement the model took the running balance for the total and left the tax empty. The rows came back held, with the failing cell named, rather than stored.
+- Spreadsheets are not a contest. Rows are copied by code and cannot be dropped or altered, one heading match is cached per supplier, and 4,000 rows cost less than a tenth of a cent in total. The naive approaches are unreliable from 200 rows and collapse above 500: the model stops early, refuses, or its JSON is cut off.
 
 ## Running it
 

@@ -135,10 +135,10 @@ were not attempted and every approach read the same text layer.
 
 | Approach | Cells correct | Wrong value stored | Flagged or held | Rejected by DB | Inconsistent invoices caught | Tokens per document | Cost per document |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 87% | 43 to 48 | 0 | 70 to 80 | 0 of 5 | 3,680 | 0.15¢ |
-| whole schema + document, SQL | 85 to 87% | 30 to 49 | 0 | 0 | 0 of 5 | 3,770 | 0.16¢ |
-| one table + text, free JSON | 87 to 88% | 35 to 39 | 0 | 46 to 62 | 0 of 5 | 1,510 | 0.07¢ |
-| SchemaGate | 87 to 89% | 7 to 9 | 39 to 41 | 0 | 5 of 5 | 1,660 | 0.08¢ |
+| whole schema + document, JSON | 88% | 39 to 56 | 0 | 70 to 76 | 0 of 5 | 3,700 | 0.15¢ |
+| whole schema + document, SQL | 89% | 38 to 51 | 0 | 0 | 0 of 5 | 3,780 | 0.16¢ |
+| one table + text, free JSON | 87 to 88% | 44 to 48 | 0 | 70 to 82 | 0 of 5 | 1,520 | 0.07¢ |
+| SchemaGate | 90 to 92% | 5 to 10 | 43 to 69 | 0 | 5 of 5 | 1,690 | 0.08¢ |
 
 70 documents, 1,718 cells with a known value. Ranges are the two runs. Cost is at Cerebras's
 published price for gpt-oss-120b; on a frontier model the same token counts cost 25 to 60
@@ -148,13 +148,13 @@ times more, in the same proportions.
 
 ![Cells that reached the table, per spreadsheet](bench/results/chart_tabular.png)
 
-Reading accuracy is the same for every approach, 85 to 89% of cells, and it moves as much
-between two runs of one approach as between approaches. What differs is what happens to a
-wrong value: SchemaGate stored 7 to 9 of them in 1,718 cells, flagged or held 39 to 41 for a
-person, and had no row rejected by the database. The other approaches stored 30 to 49 and
+Reading accuracy is close: the naive approaches read 87 to 89% of cells, SchemaGate 90 to
+92%, and it is the same model on the same text. What differs is what happens to a wrong
+value: SchemaGate stored 5 to 10 of them in 1,718 cells, flagged or held 43 to 69 for a
+person, and had no row rejected by the database. The other approaches stored 38 to 56 and
 flagged nothing. On spreadsheets the rows never reach a model: 100% of 4,000 rows for less
-than a tenth of a cent in total, where the naive approaches stop returning usable output above
-200 rows and cost 12 to 15 cents.
+than a tenth of a cent in total, where the naive approaches are unreliable from 200 rows and
+cost 8 to 16 cents.
 
 ## Built on
 
