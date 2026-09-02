@@ -325,9 +325,14 @@ Three layers, cheapest first:
 2. Database constraints the LLM schema could not carry: `varchar(n)` length, `NOT NULL`, enum
    membership, and check constraints where they are simple enough to read from
    `pg_constraint`.
-3. Arithmetic rules supplied per table in config. Line items summing to a subtotal, subtotal
-   plus tax equalling total, and so on. Comparison is on `Decimal` with an explicit tolerance,
-   never on floats.
+3. Rules supplied per table in config, for what the schema cannot say. Four kinds: a sum
+   (subtotal plus tax equals total), a product (quantity times unit price equals line total),
+   values a column can never hold (your own VAT number as a supplier's, your own name as the
+   supplier), and a shape as a regular expression (a VAT number begins with a country code).
+   Arithmetic is compared on `Decimal` with an explicit tolerance, never on floats. The
+   ingestion benchmark motivated the last three: the buyer's details stored as the seller's
+   and a line total with two printed columns glued together were the commonest wrong values
+   nothing had flagged.
 
 A row that fails any layer comes back flagged, with the failing checks attached alongside the
 extracted values. It is not silently dropped and it is not silently repaired. The caller
@@ -377,10 +382,19 @@ Real exports also carry currency symbols, no-break spaces between thousands grou
 and Nordic convention) and accounting negatives in parentheses. All three are handled.
 Regional date formats are refused: `05/01/2026` is January or May depending on who wrote it.
 
-**Arithmetic rules are declared as data, never parsed from an expression.** Rules arrive from
+**Rules are declared as data, never parsed from an expression.** Rules arrive from
 configuration, and an expression evaluator that takes configuration is a way to run arbitrary
-code inside the service. Comparison is on `Decimal` with an explicit tolerance; on floats the
-check would report `0.1 + 0.2` as unequal to `0.3` and flag correct invoices.
+code inside the service. Each kind is a small dataclass chosen by its keys, and a rule whose
+keys fit none of them is a configuration error at startup rather than a check that silently
+never runs. Comparison is on `Decimal` with an explicit tolerance; on floats the check would
+report `0.1 + 0.2` as unequal to `0.3` and flag correct invoices.
+
+**The gate reads past presentation but never past meaning.** A currency symbol, a currency
+code or a unit beside a number, `34 768,38 SEK` or `2 st`, is removed before parsing, since a
+document prints numbers that way and the number is what the column wants. Letters inside the
+digits are not touched and the value fails. The usual spellings of no value, `null`, `n/a`
+and an empty string, are read as null, so a model that writes the word rather than the JSON
+null does not get it stored as a name.
 
 ## Layout
 

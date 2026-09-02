@@ -71,6 +71,10 @@ class Extracted(Generic[ModelT]):
 
     value: ModelT
     usage: Usage
+    # Whether the provider constrained generation to the schema, or returned
+    # free JSON that was only checked afterwards. None where the adapter has no
+    # way to tell. Reported in the stage, since the two are different promises.
+    constrained: bool | None = None
 
 
 class Extractor(Protocol):

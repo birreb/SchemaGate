@@ -34,7 +34,14 @@ from schemagate.extract.factory import build_extractor, make_extractor
 from schemagate.pipeline import Extraction, Route, Stage, process
 from schemagate.schema.spec import ColumnSpec, TableRef, TableSchema
 from schemagate.validate.report import Failure
-from schemagate.validate.rules import SumRule
+from schemagate.validate.rules import (
+    PatternRule,
+    ProductRule,
+    RejectRule,
+    Rule,
+    SumRule,
+    parse_rule,
+)
 
 if TYPE_CHECKING:
     # Typed here and imported nowhere at runtime. A type checker gets the real
@@ -70,10 +77,14 @@ __all__ = [
     "MalformedDocumentError",
     "MissingDependencyError",
     "NotAuthorisedError",
+    "PatternRule",
     "PoolSchemas",
     "Price",
+    "ProductRule",
     "RateLimitedError",
+    "RejectRule",
     "Route",
+    "Rule",
     "SchemaGateError",
     "Settings",
     "Spend",
@@ -91,6 +102,7 @@ __all__ = [
     "create_app",
     "install",
     "make_extractor",
+    "parse_rule",
     "process",
     "shutdown",
 ]

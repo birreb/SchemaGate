@@ -25,7 +25,7 @@ from schemagate.extract.base import Extractor
 from schemagate.extract.cost import Price, Spend
 from schemagate.pipeline import process
 from schemagate.schema.spec import ColumnSpec, TableSchema
-from schemagate.validate.rules import SumRule
+from schemagate.validate.rules import Rule, parse_rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class Case:
     expected: tuple[dict[str, Any], ...]
     why: str = ""
     instructions: str | None = None
-    rules: tuple[SumRule, ...] = ()
+    rules: tuple[Rule, ...] = ()
     # Rows the gate is supposed to flag. A fixture with a deliberate arithmetic
     # error is testing the gate, so catching it is the case passing.
     expected_flags: int = 0
@@ -104,7 +104,7 @@ def _case(path: Path) -> Case:
             columns=tuple(_column(column) for column in table["columns"]),
         ),
         expected=tuple(raw["expected"]),
-        rules=tuple(SumRule(**rule) for rule in raw.get("rules", ())),
+        rules=tuple(parse_rule(rule) for rule in raw.get("rules", ())),
         expected_flags=raw.get("expected_flags", 0),
     )
 

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -24,6 +25,108 @@ class SumRule:
 
     def describe(self) -> str:
         return f"{' + '.join(self.terms)} = {self.equals}"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (*self.terms, self.equals)
+
+
+@dataclass(frozen=True, slots=True)
+class ProductRule:
+    """Assert that some columns multiply to another one.
+
+    `quantity * unit_price = line_total` on a line item. A model that glues two
+    printed columns into one number, `122940.00` for a line total of `2940.00`
+    beside a quantity of `12`, produces a row this rule refuses.
+    """
+
+    factors: tuple[str, ...]
+    equals: str
+    tolerance: Decimal = field(default=DEFAULT_TOLERANCE)
+
+    def describe(self) -> str:
+        return f"{' * '.join(self.factors)} = {self.equals}"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (*self.factors, self.equals)
+
+
+@dataclass(frozen=True, slots=True)
+class RejectRule:
+    """Values that can never be right for a column.
+
+    Your own VAT number can never be a supplier's, and your own company name
+    can never be the supplier. A document prints both parties side by side,
+    and a model that takes the wrong one produces a value that looks
+    plausible and is not. Compared with case and spacing ignored.
+    """
+
+    column: str
+    reject: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"{self.column} is not one of {', '.join(repr(value) for value in self.reject)}"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (self.column,)
+
+
+@dataclass(frozen=True, slots=True)
+class PatternRule:
+    """A regular expression the whole value must match.
+
+    For identifiers with a known shape that the column type cannot express: a
+    VAT number begins with a country code, an IBAN with two letters and two
+    digits. A value the document prints in the wrong place, an EIN where a VAT
+    number was wanted, fails the shape even though it is a real identifier.
+    """
+
+    column: str
+    pattern: str
+
+    def describe(self) -> str:
+        return f"{self.column} matches {self.pattern!r}"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (self.column,)
+
+
+Rule = SumRule | ProductRule | RejectRule | PatternRule
+
+
+def parse_rule(raw: Mapping[str, Any]) -> Rule:
+    """Build a rule from its configured form.
+
+    The keys say which kind it is: `terms` for a sum, `factors` for a product,
+    `reject` for forbidden values, `pattern` for a shape. Anything else is a
+    configuration error and is reported as one rather than ignored.
+    """
+    fields = dict(raw)
+    if "terms" in fields:
+        return SumRule(
+            terms=tuple(fields["terms"]),
+            equals=fields["equals"],
+            tolerance=Decimal(str(fields.get("tolerance", DEFAULT_TOLERANCE))),
+        )
+    if "factors" in fields:
+        return ProductRule(
+            factors=tuple(fields["factors"]),
+            equals=fields["equals"],
+            tolerance=Decimal(str(fields.get("tolerance", DEFAULT_TOLERANCE))),
+        )
+    if "reject" in fields:
+        return RejectRule(column=fields["column"], reject=tuple(fields["reject"]))
+    if "pattern" in fields:
+        re.compile(fields["pattern"])
+        return PatternRule(column=fields["column"], pattern=fields["pattern"])
+    raise ValueError(
+        "A rule needs `terms` and `equals` for a sum, `factors` and `equals` for a "
+        "product, `column` and `reject` for forbidden values, or `column` and "
+        f"`pattern` for a shape. Got keys: {', '.join(sorted(fields)) or 'none'}."
+    )
 
 
 def check_lengths(
@@ -60,7 +163,7 @@ def check_lengths(
 
 
 def check_sums(
-    rows: Sequence[Mapping[str, Any]], rules: Sequence[SumRule], skip: set[tuple[int, str]]
+    rows: Sequence[Mapping[str, Any]], rules: Sequence[Rule], skip: set[tuple[int, str]]
 ) -> tuple[Failure, ...]:
     """Check that the numbers in a row agree with each other.
 
@@ -72,7 +175,9 @@ def check_sums(
 
     for index, row in enumerate(rows):
         for rule in rules:
-            names = (*rule.terms, rule.equals)
+            if not isinstance(rule, SumRule | ProductRule):
+                continue
+            names = rule.columns
             if any((index, name) in skip for name in names):
                 continue
 
@@ -80,9 +185,14 @@ def check_sums(
             if not all(isinstance(value, Decimal) for value in values):
                 continue
 
-            *terms, target = (value for value in values if isinstance(value, Decimal))
-            total = sum(terms, Decimal(0))
-            if abs(total - target) > rule.tolerance:
+            *operands, target = (value for value in values if isinstance(value, Decimal))
+            if isinstance(rule, SumRule):
+                computed = sum(operands, Decimal(0))
+            else:
+                computed = Decimal(1)
+                for operand in operands:
+                    computed *= operand
+            if abs(computed - target) > rule.tolerance:
                 failures.append(
                     Failure(
                         row=index,
@@ -90,9 +200,56 @@ def check_sums(
                         rule="arithmetic",
                         detail=(
                             f"{rule.describe()} does not hold: the terms come to "
-                            f"{total}, the document says {target}."
+                            f"{computed.quantize(rule.tolerance)}, the document says {target}."
                         ),
                         value=str(target),
+                    )
+                )
+    return tuple(failures)
+
+
+def _folded(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value)).casefold()
+
+
+def check_values(
+    rows: Sequence[Mapping[str, Any]], rules: Sequence[Rule], skip: set[tuple[int, str]]
+) -> tuple[Failure, ...]:
+    """Check single values against what an operator knows about them."""
+    failures: list[Failure] = []
+
+    for index, row in enumerate(rows):
+        for rule in rules:
+            if not isinstance(rule, RejectRule | PatternRule):
+                continue
+            if (index, rule.column) in skip:
+                continue
+            value = row.get(rule.column)
+            if value is None:
+                continue
+
+            if isinstance(rule, RejectRule):
+                if _folded(value) in {_folded(bad) for bad in rule.reject}:
+                    failures.append(
+                        Failure(
+                            row=index,
+                            column=rule.column,
+                            rule="rejected_value",
+                            detail=(
+                                f"{value!r} can never be right for {rule.column!r}: it is one "
+                                f"of the values this table rejects."
+                            ),
+                            value=str(value),
+                        )
+                    )
+            elif re.fullmatch(rule.pattern, str(value)) is None:
+                failures.append(
+                    Failure(
+                        row=index,
+                        column=rule.column,
+                        rule="pattern",
+                        detail=f"{value!r} does not match the shape {rule.pattern!r}.",
+                        value=str(value),
                     )
                 )
     return tuple(failures)

@@ -183,6 +183,10 @@ class OpenAICompletions:
     async def parse(self, **kwargs: Any) -> Any:
         return self.completion or OpenAICompletion(choices=[OpenAIChoice(OpenAIMessage())])
 
+    async def create(self, **kwargs: Any) -> Any:
+        # The protocol also names the unconstrained call. Not used by these tests.
+        return await self.parse(**kwargs)
+
 
 @dataclass
 class OpenAIChat:

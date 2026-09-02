@@ -9,6 +9,9 @@ from typing import Any
 from schemagate.schema.spec import ColumnSpec, TableSchema
 from schemagate.validate.report import Failure
 
+# Spellings of no value that a model writes instead of the JSON null.
+NULL_WORDS = frozenset({"", "null", "none", "n/a", "na", "nan", "nil"})
+
 TRUE_WORDS = frozenset({"true", "t", "yes", "y", "1"})
 FALSE_WORDS = frozenset({"false", "f", "no", "n", "0"})
 
@@ -24,6 +27,14 @@ JSON_TYPES = frozenset({"json", "jsonb"})
 # A separator followed by exactly three digits is either a thousands separator
 # or a decimal point, and nothing in the string says which.
 GROUP_SIZE = 3
+
+# A short word before the number, separated by a space, or a word or percent
+# sign after it. `USD 1,234.56`, `3,5 Std`, `19%`. The word is at most six
+# letters so that a value that is mostly letters is not mistaken for a number
+# with a long unit.
+EDGE_WORD = re.compile(
+    r"^(?:[A-Za-z]{1,4}\.?\s+)?(?P<core>.*?)(?:\s*(?:%|[A-Za-z]{1,6}\.?))?$", re.S
+)
 
 # Spelled out rather than using %B or %b, which follow the machine's locale.
 # On a Swedish host those expect Swedish month names and a document in English
@@ -62,7 +73,7 @@ class _AmbiguousNumberError(ValueError):
 
 
 def coerce_rows(
-    rows: Sequence[Mapping[str, str | None]], schema: TableSchema
+    rows: Sequence[Mapping[str, Any]], schema: TableSchema
 ) -> tuple[tuple[dict[str, Any], ...], tuple[Failure, ...]]:
     """Turn the strings that came out of a file or a model into database types.
 
@@ -88,9 +99,7 @@ def coerce_rows(
     return tuple(coerced), tuple(failures)
 
 
-def _conventions(
-    rows: Sequence[Mapping[str, str | None]], schema: TableSchema
-) -> dict[str, str | None]:
+def _conventions(rows: Sequence[Mapping[str, Any]], schema: TableSchema) -> dict[str, str | None]:
     """Read each numeric column once to see which separator the file uses.
 
     Done before any conversion, because a value that is ambiguous on its own may
@@ -109,9 +118,30 @@ def _conventions(
     }
 
 
+def _as_text(value: Any) -> str:
+    """Spell a JSON scalar the way a document would print it.
+
+    The compiled model asks for exact numbers as strings, but an integer,
+    float or boolean column is typed as itself, so its value arrives as a
+    Python int, float or bool. Every parser below reads text, and a wrong
+    kind of value for a column should fail as a type failure like any other
+    unreadable text rather than as a crash.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return repr(value)
+    if isinstance(value, list | dict):
+        return json.dumps(value)
+    return str(value)
+
+
 def _coerce_cell(
-    text: str | None, column: ColumnSpec, row: int, convention: str | None = None
+    value: Any, column: ColumnSpec, row: int, convention: str | None = None
 ) -> tuple[Any, Failure | None]:
+    text = value if value is None or isinstance(value, str) else _as_text(value)
+    if text is not None and _means_nothing(text, column):
+        text = None
     if text is None:
         # A default satisfies NOT NULL on the database's side, so a document
         # that says nothing about such a column has not done anything wrong.
@@ -151,6 +181,19 @@ def _coerce_cell(
             detail=f"{text!r} is not a valid {column.data_type}: {error}",
             value=text,
         )
+
+
+def _means_nothing(text: str, column: ColumnSpec) -> bool:
+    """Whether a string is one of the usual spellings of no value.
+
+    A model asked for something it cannot find sometimes writes the word rather
+    than the JSON null, and a text column would store the word. An enum whose
+    labels include such a word keeps it, since there it is a value.
+    """
+    word = text.strip().casefold()
+    if word in {label.casefold() for label in column.enum_labels}:
+        return False
+    return word in NULL_WORDS
 
 
 class _NotALabelError(ValueError):
@@ -317,6 +360,13 @@ def _strip(text: str) -> tuple[str, bool]:
     """
     body = text.strip()
     negative = False
+
+    # A unit or currency code at either end, `2 st`, `25 %`, `USD 1,234.56`,
+    # is presentation like a currency symbol, and the number is what the
+    # column wants. Letters inside the digits are not touched and still fail.
+    edged = EDGE_WORD.match(body)
+    if edged and edged.group("core").strip():
+        body = edged.group("core").strip()
 
     if body.startswith("(") and body.endswith(")"):
         negative = True

@@ -5,7 +5,7 @@ from typing import Any
 from schemagate.schema.spec import TableSchema
 from schemagate.validate.coerce import coerce_rows
 from schemagate.validate.report import Failure
-from schemagate.validate.rules import SumRule, check_lengths, check_sums
+from schemagate.validate.rules import Rule, check_lengths, check_sums, check_values
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,9 +21,9 @@ class ValidationReport:
 
 
 def validate(
-    rows: Sequence[Mapping[str, str | None]],
+    rows: Sequence[Mapping[str, Any]],
     schema: TableSchema,
-    rules: Sequence[SumRule] = (),
+    rules: Sequence[Rule] = (),
 ) -> ValidationReport:
     """Run the gate: coerce, then check what the schema alone cannot express.
 
@@ -36,6 +36,7 @@ def validate(
 
     failures += check_lengths(coerced, schema, rejected)
     failures += check_sums(coerced, rules, rejected)
+    failures += check_values(coerced, rules, rejected)
 
     return ValidationReport(rows=coerced, failures=tuple(sorted(failures, key=_position)))
 

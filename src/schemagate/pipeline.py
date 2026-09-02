@@ -19,7 +19,7 @@ from schemagate.schema.factory import build_container_model
 from schemagate.schema.spec import TableSchema
 from schemagate.validate.gate import validate
 from schemagate.validate.report import Failure
-from schemagate.validate.rules import SumRule
+from schemagate.validate.rules import Rule
 
 
 class Route(StrEnum):
@@ -72,7 +72,7 @@ async def process(
     filename: str | None,
     schema: TableSchema,
     extractor: Extractor | None,
-    rules: Sequence[SumRule] = (),
+    rules: Sequence[Rule] = (),
     instructions: str | None = None,
     header_extractor: Extractor | None = None,
     prices: Mapping[str, Price] | None = None,
@@ -243,7 +243,7 @@ async def _read(
             answer = await _ask(extractor, parsed.markdown, schema, instructions)
             spent.append(answer.usage)
             rows = _rows(answer)
-            note.detail = _describe_extract(len(rows), schema, "text")
+            note.detail = _describe_extract(len(rows), schema, "text", answer.constrained)
             note.detail += _describe_usage((answer.usage,))
         return route, rows, ((), ())
 
@@ -258,7 +258,7 @@ async def _read(
             answer = await _ask(extractor, "", schema, instructions, (image,))
             spent.append(answer.usage)
             rows = _rows(answer)
-            note.detail = _describe_extract(len(rows), schema, "the image")
+            note.detail = _describe_extract(len(rows), schema, "the image", answer.constrained)
             note.detail += _describe_usage((answer.usage,))
         return Route.VISION, rows, ((), ())
 
@@ -283,12 +283,23 @@ def _describe_match(
     return "; ".join(parts)
 
 
-def _describe_extract(rows: int, schema: TableSchema, source: str) -> str:
+def _describe_extract(
+    rows: int, schema: TableSchema, source: str, constrained: bool | None = None
+) -> str:
+    """What the model was asked, and whether the provider held it to the schema.
+
+    A provider that constrains generation makes a wrong column impossible to
+    write. One that returns free JSON leaves that to the check afterwards, which
+    catches it just the same but is a weaker promise, so the stage says so.
+    """
     fields = len(schema.extractable)
-    return (
+    text = (
         f"A model read {source} against a schema of {fields} "
         f"field{'' if fields == 1 else 's'}, returning {rows} row{'' if rows == 1 else 's'}"
     )
+    if constrained is False:
+        text += "; the provider returned free JSON, checked here rather than constrained"
+    return text
 
 
 async def _read_table(data: bytes, kind: FileKind) -> Table:

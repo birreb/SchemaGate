@@ -1,0 +1,7 @@
+{
+  "_note": "USD per million tokens, keyed by provider:model, copied from each provider's pricing page on 2 September 2026. A model missing here reports tokens and no cost. Local models cost nothing per token and are left out on purpose.",
+  "anthropic:claude-haiku-4-5": {"input": 1, "output": 5, "cached_input": 0.1},
+  "anthropic:claude-sonnet-5": {"input": 2, "output": 10, "cached_input": 0.2},
+  "anthropic:claude-opus-5": {"input": 5, "output": 25, "cached_input": 0.5},
+  "cerebras:gpt-oss-120b": {"input": 0.35, "output": 0.75}
+}

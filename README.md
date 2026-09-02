@@ -113,6 +113,45 @@ do not have, a value outside your enum, and a field of the wrong type are not ex
 This constrains the shape, not the content. Values can still be wrong, which is what step 4 is
 for.
 
+## Benchmark
+
+A document and a live PostgreSQL database, four ways, with the same model in every approach.
+The naive approach sends the whole database schema and the document and asks for JSON rows, or
+for INSERT statements. An ablation sends one table's DDL and the text layer and asks for free
+JSON. SchemaGate reads the table from `pg_catalog`, constrains the output to it, and runs the
+gate. Every answer is inserted into the real table inside a transaction that is rolled back,
+so PostgreSQL decides what is insertable, and what landed is compared cell by cell with what
+the document says.
+
+88 generated cases: 45 invoices in eight layouts and five locales, 10 supplier statements,
+15 line-item sets, 12 receipt photographs and 6 exports of 50 to 2,000 rows. Five invoices
+have a printed total that does not add up. Method, documents and the full results are in
+[bench/README.md](bench/README.md).
+
+Two runs with gpt-oss-120b on Cerebras, 2 September 2026. A text-only model, so the receipts
+were not attempted and every approach read the same text layer.
+
+![What happened to each value in the documents a model read](bench/results/chart_documents.png)
+
+| Approach | Cells correct | Wrong value stored | Flagged or held | Rejected by DB | Inconsistent invoices caught | Tokens per document |
+| --- | --- | --- | --- | --- | --- | --- |
+| whole schema + document, JSON | 87% | 43 to 48 | 0 | 70 to 80 | 0 of 5 | 3,680 |
+| whole schema + document, SQL | 85 to 87% | 30 to 49 | 0 | 0 | 0 of 5 | 3,770 |
+| one table + text, free JSON | 87 to 88% | 35 to 39 | 0 | 46 to 62 | 0 of 5 | 1,510 |
+| SchemaGate | 87 to 89% | 7 to 9 | 39 to 41 | 0 | 5 of 5 | 1,660 |
+
+70 documents, 1,718 cells with a known value. Ranges are the two runs.
+
+![Cells that reached the table, per spreadsheet](bench/results/chart_tabular.png)
+
+Reading accuracy is the same for every approach, 85 to 89% of cells, and it moves as much
+between two runs of one approach as between approaches. What differs is what happens to a
+wrong value: SchemaGate stored 7 to 9 of them in 1,718 cells, flagged or held 39 to 41 for a
+person, and had no row rejected by the database. The other approaches stored 30 to 49 and
+flagged nothing. On spreadsheets the rows never reach a model: 100% of 4,000 rows for less
+than a tenth of a cent in total, where the naive approaches stop returning usable output above
+200 rows and cost 12 to 15 cents.
+
 ## Built on
 
 Python 3.11 to 3.14. The parsing is Rust underneath, the rest is small.
@@ -291,6 +330,25 @@ stored on the server or written to a log.
 One adapter covers the third row rather than one per vendor. Adding another
 OpenAI-compatible service costs nothing but a URL.
 
+The hosts built for speed serve open models at a fraction of a frontier model's price, and
+a one-page invoice needs about 1,500 tokens, so this is where most deployments should start:
+
+```
+SCHEMAGATE_PROVIDER=openai_compatible
+SCHEMAGATE_OPENAI_BASE_URL=https://api.cerebras.ai/v1
+SCHEMAGATE_OPENAI_MODEL=gpt-oss-120b
+OPENAI_API_KEY=<the host's key>
+```
+
+Groq, Together, Fireworks and DeepInfra work the same way with their own URL and key. These
+hosts differ in which models honour schema-constrained output. Where one declines, the
+pipeline asks for plain JSON, validates it against the table itself, and the `extract` stage
+says so, since a wrong column that was impossible to generate and one that was rejected
+afterwards are different promises.
+
+An Anthropic key that acts in more than one workspace needs `ANTHROPIC_WORKSPACE_ID` as well,
+which the SDK reads.
+
 ## What it costs
 
 Every response says what the document cost, and so does the log line.
@@ -381,7 +439,7 @@ Environment variables only. No config file.
 | `SCHEMAGATE_DATABASE_TIMEOUT_SECONDS` | `10` | How long to wait on the database. |
 | `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
 | `SCHEMAGATE_INSTRUCTIONS` | `{}` | Free text passed to the model per table, for what a schema cannot say. A request may override it. |
-| `SCHEMAGATE_RULES` | `{}` | Arithmetic checks per table, `{"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}`. |
+| `SCHEMAGATE_RULES` | `{}` | Checks per table that the schema cannot express. Four kinds: `{"terms": ["subtotal", "tax"], "equals": "total"}` for a sum, `{"factors": ["quantity", "unit_price"], "equals": "line_total"}` for a product, `{"column": "vat_id", "reject": ["SE559012345601"]}` for values a column can never hold, and `{"column": "vat_id", "pattern": "[A-Z]{2}[A-Z0-9]{2,12}"}` for a shape. |
 | `SCHEMAGATE_EFFORT` | `low` | How hard the model is asked to think, where the provider exposes it. Empty sends nothing, which is what an older model needs. |
 | `SCHEMAGATE_HEADER_MODEL` | unset | A cheaper model for matching headings to columns by meaning. Unset, the extraction model does both. |
 | `SCHEMAGATE_PRICES` | `{}` | What each model costs per million tokens, `{"claude-opus-5": {"input": 5, "output": 25}}`. Without it, tokens are reported and `cost_usd` is null. |

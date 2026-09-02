@@ -42,7 +42,19 @@ _MODEL_CONFIG = ConfigDict(extra="forbid")
 # from reformatting a number. That leaves dates in whatever the document used,
 # and "01 September 2026" is a perfectly reasonable thing to copy. The column
 # knows what it wants, so it says so.
+NUMBER_HINT = "The number only, without a unit or currency."
+
 FORMAT_HINTS = {
+    # A quantity is printed with its unit, `2 st` or `8 hrs`, and copied
+    # exactly it is not a number. The gate would reject it, correctly, and the
+    # row would be lost for a value the model could have given.
+    "numeric": NUMBER_HINT,
+    "decimal": NUMBER_HINT,
+    "int2": NUMBER_HINT,
+    "int4": NUMBER_HINT,
+    "int8": NUMBER_HINT,
+    "float4": NUMBER_HINT,
+    "float8": NUMBER_HINT,
     "date": "Format as YYYY-MM-DD.",
     "timestamp": "Format as YYYY-MM-DDTHH:MM:SS.",
     "timestamptz": "Format as YYYY-MM-DDTHH:MM:SS with an offset.",

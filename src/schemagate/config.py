@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from schemagate.errors import ConfigurationError, UnknownConnectionError
 from schemagate.extract.cost import Price
-from schemagate.validate.rules import SumRule
+from schemagate.validate.rules import Rule, parse_rule
 
 ENV_PREFIX = "SCHEMAGATE_"
 
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     # Arithmetic checks per table, keyed by qualified name, for example
     # {"public.invoices": [{"terms": ["subtotal", "tax"], "equals": "total"}]}
-    rules: dict[str, list[SumRule]] = Field(default_factory=dict)
+    rules: dict[str, list[Rule]] = Field(default_factory=dict)
 
     # Free text passed to the model alongside a document, per table. For the
     # things a schema cannot say: which of two dates is the issue date, what
@@ -120,6 +120,17 @@ class Settings(BaseSettings):
             raise ValueError("at least one connection must be configured")
         return value
 
+    @field_validator("rules", mode="before")
+    @classmethod
+    def _parse_rules(cls, value: Any) -> Any:
+        """Build each rule from its keys, so a malformed one is named at startup."""
+        if not isinstance(value, dict):
+            return value
+        parsed: dict[str, list[Any]] = {}
+        for table, rules in value.items():
+            parsed[table] = [parse_rule(rule) if isinstance(rule, dict) else rule for rule in rules]
+        return parsed
+
     @field_validator("api_keys", mode="before")
     @classmethod
     def _split_keys(cls, value: Any) -> Any:
@@ -142,8 +153,8 @@ class Settings(BaseSettings):
             )
         return secret.get_secret_value()
 
-    def rules_for(self, table: str) -> tuple[SumRule, ...]:
-        """Arithmetic checks configured for a table, by qualified name."""
+    def rules_for(self, table: str) -> tuple[Rule, ...]:
+        """Checks configured for a table, by qualified name."""
         return tuple(self.rules.get(table, ()))
 
     def instructions_for(self, table: str) -> str | None:

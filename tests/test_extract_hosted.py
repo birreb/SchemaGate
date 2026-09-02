@@ -155,6 +155,10 @@ class FakeCompletions:
             choices=[FakeChoice(self.message or FakeOpenAIMessage(parsed=ANSWER))]
         )
 
+    async def create(self, **kwargs: Any) -> Any:
+        # The protocol also names the unconstrained call. Not used by these tests.
+        return await self.parse(**kwargs)
+
 
 @dataclass
 class FakeChat:
