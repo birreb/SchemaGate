@@ -94,7 +94,54 @@ class PatternRule:
         return (self.column,)
 
 
-Rule = SumRule | ProductRule | RejectRule | PatternRule
+@dataclass(frozen=True, slots=True)
+class RequireRule:
+    """A column the operator expects to be filled, though the table allows null.
+
+    A seller VAT number is nullable because some suppliers have none, and a
+    model that could not find one returns null, which the table accepts. Where
+    the operator knows the value is nearly always printed, a null is worth a
+    look, and this says so.
+    """
+
+    column: str
+
+    def describe(self) -> str:
+        return f"{self.column} is present"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (self.column,)
+
+
+@dataclass(frozen=True, slots=True)
+class RangeRule:
+    """Bounds on a numeric column that the type does not carry.
+
+    A tax that is never zero, a shipping charge that is never half the invoice,
+    a quantity that is never negative. A model that splits one printed amount
+    into two that still add up passes every arithmetic rule; a bound on what
+    each part can be is what refuses it.
+    """
+
+    column: str
+    minimum: Decimal | None = None
+    maximum: Decimal | None = None
+
+    def describe(self) -> str:
+        bounds = []
+        if self.minimum is not None:
+            bounds.append(f"at least {self.minimum}")
+        if self.maximum is not None:
+            bounds.append(f"at most {self.maximum}")
+        return f"{self.column} is {' and '.join(bounds)}"
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return (self.column,)
+
+
+Rule = SumRule | ProductRule | RejectRule | PatternRule | RequireRule | RangeRule
 
 
 def parse_rule(raw: Mapping[str, Any]) -> Rule:
@@ -122,10 +169,20 @@ def parse_rule(raw: Mapping[str, Any]) -> Rule:
     if "pattern" in fields:
         re.compile(fields["pattern"])
         return PatternRule(column=fields["column"], pattern=fields["pattern"])
+    if fields.get("require") is True:
+        return RequireRule(column=fields["column"])
+    if "min" in fields or "max" in fields:
+        return RangeRule(
+            column=fields["column"],
+            minimum=Decimal(str(fields["min"])) if "min" in fields else None,
+            maximum=Decimal(str(fields["max"])) if "max" in fields else None,
+        )
     raise ValueError(
         "A rule needs `terms` and `equals` for a sum, `factors` and `equals` for a "
-        "product, `column` and `reject` for forbidden values, or `column` and "
-        f"`pattern` for a shape. Got keys: {', '.join(sorted(fields)) or 'none'}."
+        "product, `column` and `reject` for forbidden values, `column` and `pattern` "
+        "for a shape, `column` and `require: true` for a value that must be present, or "
+        "`column` with `min` or `max` for bounds. "
+        f"Got keys: {', '.join(sorted(fields)) or 'none'}."
     )
 
 
@@ -220,12 +277,47 @@ def check_values(
 
     for index, row in enumerate(rows):
         for rule in rules:
-            if not isinstance(rule, RejectRule | PatternRule):
+            if not isinstance(rule, RejectRule | PatternRule | RequireRule | RangeRule):
                 continue
             if (index, rule.column) in skip:
                 continue
             value = row.get(rule.column)
+            if isinstance(rule, RequireRule):
+                if value is None:
+                    failures.append(
+                        Failure(
+                            row=index,
+                            column=rule.column,
+                            rule="required",
+                            detail=(
+                                f"Column {rule.column!r} is expected to be present and the "
+                                f"document gave no value."
+                            ),
+                        )
+                    )
+                continue
             if value is None:
+                continue
+
+            if isinstance(rule, RangeRule):
+                if not isinstance(value, Decimal | int | float):
+                    continue
+                number = Decimal(str(value))
+                below = rule.minimum is not None and number < rule.minimum
+                above = rule.maximum is not None and number > rule.maximum
+                if below or above:
+                    failures.append(
+                        Failure(
+                            row=index,
+                            column=rule.column,
+                            rule="range",
+                            detail=(
+                                f"{value} is outside what {rule.column!r} can be: "
+                                f"{rule.describe()}."
+                            ),
+                            value=str(value),
+                        )
+                    )
                 continue
 
             if isinstance(rule, RejectRule):

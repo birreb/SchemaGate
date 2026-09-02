@@ -31,7 +31,7 @@ what the document says.
 | wrong value stored | a different value was stored and nothing flagged it |
 | left blank | NULL was stored where the document had a value, and nothing flagged it; a blank is found on review, a plausible wrong number is not |
 | flagged | value differs and the approach reported it |
-| held for review | the row had a flagged cell and could not be inserted; it comes back with the failing cell and rule named rather than as a database error |
+| held for review | the row had a flagged cell and could not be inserted, or the document was reported as incomplete and this is a row it named; either way it reached a person with the failing cell or the missing value named, rather than as a database error or silence |
 | rejected by DB | the row failed to insert, with the error class recorded |
 | missing | the row never came back |
 | phantom cols | keys returned that the table does not have |
@@ -92,31 +92,30 @@ that value is not scored.
 
 ## Results
 
-Two full runs on 2 September 2026 with gpt-oss-120b on Cerebras, the same model in every
+A full run on 2 September 2026 with gpt-oss-120b on Cerebras, the same model in every
 approach. A text-only model, so the 12 receipt photographs were not attempted and the
 whole-schema approaches were handed each PDF's text layer rather than the PDF. Every approach
 therefore read the same text, the same column comments, and the same two sentences an operator
 would write: who the buyer is, and that a statement's header VAT number applies to every row.
 What differs is the schema it was given, whether the output was constrained, and whether
-anything checked the values. Each run cost about 80 cents.
+anything checked the values. The run cost about 80 cents.
 
 Reading accuracy is the same for every approach, so the first chart shows only the cells that
-did not land correctly, about 9% of the total, and what became of them. The second shows every
+did not land correctly, about 6% of the total, and what became of them. The second shows every
 cell.
 
 ![The cells that did not land correctly, and what became of them](results/chart_misses.png)
 
 ![What happened to each value in the documents a model read](results/chart_documents.png)
 
-Documents that need a model: 70 cases, 172 rows, 1,538 cells. Where the two runs differ the
-range is given.
+Documents that need a model: 70 cases, 172 rows, 1,538 cells.
 
 | Approach | Cells correct | Wrong value stored | Left blank | Flagged | Held for review | Rejected by DB | Rows never returned | Inconsistent invoices caught | Tokens per document | Cost per document |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 90 to 91% | 14 to 34 | 37 to 44 | 0 | 0 | 44 to 83 | 11 to 33 | 0 of 5 | 3,860 | 0.16¢ |
-| whole schema + document, SQL | 90 to 92% | 11 to 26 | 24 to 43 | 0 | 0 | 0 | 77 to 83 | 0 of 5 | 3,940 | 0.16¢ |
-| one table + text, free JSON | 91% | 18 to 27 | 32 | 0 | 0 | 83 | 0 | 0 of 5 | 1,630 | 0.08¢ |
-| SchemaGate | 91 to 92% | 2 to 3 | 11 | 35 to 39 | 28 to 42 | 0 | 44 | 5 of 5 | 1,780 | 0.08¢ |
+| whole schema + document, JSON | 92.8% | 14 | 20 | 0 | 0 | 77 | 0 | 0 of 5 | 3,840 | 0.16¢ |
+| whole schema + document, SQL | 93.6% | 10 | 23 | 0 | 0 | 0 | 66 | 0 of 5 | 3,930 | 0.16¢ |
+| one table + text, free JSON | 94.3% | 10 | 5 | 0 | 0 | 72 | 0 | 0 of 5 | 1,610 | 0.08¢ |
+| SchemaGate | 94.1% | 1 | 3 | 16 | 71 | 0 | 0 | 5 of 5 | 1,780 | 0.08¢ |
 
 ![Tokens and latency per document](results/chart_cost.png)
 
@@ -126,9 +125,9 @@ Spreadsheets and CSV files, six cases from 50 to 2,000 rows:
 
 | Approach | 50 rows | 200 rows, German headings | 200 rows, English headings | 500 rows | 1,000 rows | 2,000 rows | Cost for the six files |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 100% | 21 to 100% | 0 to 18% | 0 to 2% | 0% | 0 to 6% | 11 to 15¢ |
-| whole schema + document, SQL | 100% | 11 to 100% | 27 to 100% | 9 to 84% | 2 to 42% | 4 to 9% | 15¢ |
-| one table + text, free JSON | 100% | 0 to 100% | 13 to 100% | 0% | 0% | 0% | 8 to 13¢ |
+| whole schema + document, JSON | 100% | 0% | 99% | 0% | 15% | 0% | 10¢ |
+| whole schema + document, SQL | 100% | 59% | 100% | 22% | 8% | 0% | 9¢ |
+| one table + text, free JSON | 100% | 100% | 5% | 0% | 0% | 0% | 8¢ |
 | SchemaGate | 100% | 100% | 100% | 100% | 100% | 100% | 0.09¢ |
 
 SchemaGate reads the six files in 8 to 56 ms each. The two files with matching English
@@ -137,14 +136,14 @@ cached for the next file with the same headings.
 
 What the numbers say:
 
-- Reading accuracy is the same for everyone. Every approach reads 90 to 92% of cells, and the spread between two runs of one approach is about as wide as the spread between approaches. Same model, same text: narrowing the schema and constraining the output did not make it read better.
-- What happens to a wrong value is not the same. SchemaGate stored 2 to 3 wrong values in 1,538 cells, two tenths of a percent: one delivery date taken as the invoice date, one invoice number copied into the purchase-order field. The other approaches stored 11 to 34. SchemaGate flagged or held 63 to 81 cells for a person, which no other approach can report, and Postgres rejected none of its rows; the naive JSON approaches lost 44 to 83 cells to type and not-null errors a caller would have to decode.
-- The five invoices whose totals do not add up were reported in both runs, five of five. No other approach can notice this.
-- Good column comments helped everyone, and a fair benchmark says so. Auditing the earlier runs showed the commonest miss was the ground truth's, not the model's: subtotal was expected to include freight, which no invoice prints. With a `shipping` column, and comments that name the VAT labels each country uses and say a description carries no position number, the naive approaches' wrong values fell from 38 to 56 to 11 to 34. SchemaGate's fell from 57 to 2 to 3, because the rules turn the rest into flags.
-- Held for review is the gate refusing a misread. On Swedish layouts the tax-rate column sits beside an amount written with a space as the thousands separator, so `12` and `2 940,00` reach the text layer as `12 2 940,00` and the model reads one number. The product rule on line items catches every one. On the densest monospaced statement the model took the running balance for the total and left the tax empty; those rows came back held with the failing cell named. A vision model would not have either problem; a text-layer model always will, which is why the rules stay.
-- Left blank is now small. SchemaGate stored NULL for 11 values the documents carried, down from 52 before the comments were sharpened. The others left 24 to 44 blank.
-- Rows never returned are one layout. 44 cells, all from the two monospaced running-balance statements, where the model still sometimes returns two invoices of five. Every approach loses rows there.
+- Reading accuracy is the same for everyone. Every approach reads 93 to 94% of cells, and across the seven full runs made while building this the same approach moved by about two points between runs. Same model, same text, same comments: nothing here makes the model read better.
+- What reaches the table without a warning is not the same. SchemaGate stored 1 wrong value and 3 blanks in 1,538 cells, four cells nobody was told about. The other approaches stored 10 to 14 wrong values and 5 to 23 blanks, and lost 66 to 77 cells to database errors or rows that never came back, with nothing to say so.
+- Everything else SchemaGate got wrong, it said so. 87 cells were flagged or held: the arithmetic and range rules on individual cells, two statements reported as incomplete with the invoice numbers the model skipped named, and one line item held for a missing quantity. Postgres rejected none of its rows.
+- The five invoices whose totals do not add up were reported, five of five. No other approach can notice this.
+- From 57 wrong values to 1 took an audit, not a better model. Every miss in the early runs was read. A quarter were the ground truth's own error, fixed by a `shipping` column. The rest became six rule kinds (sum, product, reject, pattern, require, range), a text layer that keeps columns apart, a completeness check against the identifiers the document names, and sharper column comments. The comments and instructions went to every approach; the checks are what the others do not have.
+- What is still wrong. One delivery date taken as the invoice date on a monospaced invoice, and three values left blank. Neither has a check yet: a plausible date passes every rule, and a blank in a nullable column is legal.
 - Spreadsheets are not a contest. Rows are copied by code and cannot be dropped or altered, one heading match is cached per supplier, and 4,000 rows cost less than a tenth of a cent in total. The naive approaches are unreliable from 200 rows and collapse above 500: the model stops early, refuses, or its JSON is cut off.
+- One run, not two. A confirmation run was cut off when the provider's credit ran out. The six earlier pairs of runs differed by about two points on cells correct and by a handful of cells per category, and the ordering never changed.
 
 ## Running it
 

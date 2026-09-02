@@ -5,7 +5,8 @@ import pathlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
-from typing import Any
+from itertools import pairwise
+from typing import Any, Protocol
 
 import anyio.to_thread
 
@@ -102,6 +103,12 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
     markdown = result.markdown or ""
     needs_ocr = _needs_ocr(result.pdf_type, markdown, result.has_encoding_issues)
 
+    if not needs_ocr:
+        # Rebuilt from where each piece of text sits, so that two columns
+        # stay two columns. The parser's markdown can put a tax rate and an
+        # amount into one cell, and `25 26 618,54` is one number to a model.
+        markdown = _layout_text(parser, data) or markdown
+
     if needs_ocr and allow_ocr and ocr_available():
         recovered = _run_ocr(data)
         if recovered is not None:
@@ -129,6 +136,70 @@ def read_pdf(data: bytes, allow_ocr: bool = False) -> PdfText:
         pages_flagged_sparse=tuple(result.pages_needing_ocr),
         route="native",
     )
+
+
+class Positioned(Protocol):
+    """A piece of text and where it sits, as the parser reports it."""
+
+    text: str
+    x: float
+    y: float
+    width: float
+    font_size: float
+    page: int
+
+
+# A gap wider than this many font sizes between two pieces on one line is a
+# column boundary. A word space is about a quarter of the font size, and a
+# thousands separator inside one piece is never a gap at all.
+COLUMN_GAP = 1.2
+
+# Pieces whose baselines differ by less than this share of the font size sit
+# on one line. Superscripts and slightly misaligned cells still join it.
+SAME_LINE = 0.4
+
+
+def layout_lines(items: Sequence[Positioned]) -> str:
+    """Lines of text in reading order, with column gaps marked by ` | `.
+
+    Grouped by page, then by baseline from the top of the page down, then
+    ordered left to right. Two pieces separated by more than a word's worth of
+    space are different columns and are joined with a bar; anything closer is
+    joined with a space, and the spaces inside a piece are left as they are.
+    """
+    pages: dict[int, list[Positioned]] = {}
+    for item in items:
+        if item.text.strip():
+            pages.setdefault(item.page, []).append(item)
+
+    rendered: list[str] = []
+    for page in sorted(pages):
+        lines: list[tuple[float, list[Positioned]]] = []
+        for item in sorted(pages[page], key=lambda piece: (-piece.y, piece.x)):
+            if lines and abs(lines[-1][0] - item.y) <= max(2.0, item.font_size * SAME_LINE):
+                lines[-1][1].append(item)
+            else:
+                lines.append((item.y, [item]))
+        for _, pieces in lines:
+            pieces.sort(key=lambda piece: piece.x)
+            text = pieces[0].text
+            for previous, current in pairwise(pieces):
+                gap = current.x - (previous.x + previous.width)
+                joiner = " | " if gap > COLUMN_GAP * max(previous.font_size, 6.0) else " "
+                text += joiner + current.text
+            rendered.append(text.strip())
+        rendered.append("")
+    return "\n".join(rendered).strip()
+
+
+def _layout_text(parser: Any, data: bytes) -> str:
+    """The text layer rebuilt from positions, or empty when the parser cannot say."""
+    try:
+        items = parser.extract_text_with_positions_bytes(data)
+    except Exception:
+        # Anything the parser cannot position falls back to its own markdown.
+        return ""
+    return layout_lines(items)
 
 
 def _pages_to_reread(text: str, flagged: Sequence[int], result: Any) -> tuple[int, ...]:

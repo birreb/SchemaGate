@@ -88,7 +88,8 @@ worth being able to see rather than being asked to believe.
 2. Read the document. A PDF becomes text, a scan goes through OCR, a photo is normalised, a CSV
    or spreadsheet becomes a grid.
 3. Send it to the model along with a schema built from step 1.
-4. Check what comes back: types, lengths, enum members, and any arithmetic rules you set.
+4. Check what comes back: types, lengths, enum members, any rules you set, and whether the
+   document names rows that did not come back.
 5. Return JSON shaped like the table. You run the `INSERT`; SchemaGate never writes.
 
 ### What the model does
@@ -128,11 +129,11 @@ the document says.
 have a printed total that does not add up. Method, documents and the full results are in
 [bench/README.md](bench/README.md).
 
-Two runs with gpt-oss-120b on Cerebras, 2 September 2026. A text-only model, so the receipts
-were not attempted and every approach read the same text layer.
+A full run with gpt-oss-120b on Cerebras, 2 September 2026. A text-only model, so the
+receipts were not attempted and every approach read the same text layer.
 
 Reading accuracy is the same for every approach, since it is the same model on the same text.
-The difference is in the cells that did not land correctly, about 9% of the total, and what
+The difference is in the cells that did not land correctly, about 6% of the total, and what
 became of them:
 
 ![The cells that did not land correctly, and what became of them](bench/results/chart_misses.png)
@@ -141,26 +142,28 @@ became of them:
 
 | Approach | Cells correct | Wrong value stored | Flagged or held | Rejected by DB | Inconsistent invoices caught | Tokens per document | Cost per document |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| whole schema + document, JSON | 90 to 91% | 14 to 34 | 0 | 44 to 83 | 0 of 5 | 3,860 | 0.16¢ |
-| whole schema + document, SQL | 90 to 92% | 11 to 26 | 0 | 0 | 0 of 5 | 3,940 | 0.16¢ |
-| one table + text, free JSON | 91% | 18 to 27 | 0 | 83 | 0 of 5 | 1,630 | 0.08¢ |
-| SchemaGate | 91 to 92% | 2 to 3 | 63 to 81 | 0 | 5 of 5 | 1,780 | 0.08¢ |
+| whole schema + document, JSON | 92.8% | 14 | 0 | 77 | 0 of 5 | 3,840 | 0.16¢ |
+| whole schema + document, SQL | 93.6% | 10 | 0 | 0 | 0 of 5 | 3,930 | 0.16¢ |
+| one table + text, free JSON | 94.3% | 10 | 0 | 72 | 0 of 5 | 1,610 | 0.08¢ |
+| SchemaGate | 94.1% | 1 | 87 | 0 | 5 of 5 | 1,780 | 0.08¢ |
 
-70 documents, 1,538 cells with a known value. Ranges are the two runs. Cost is at Cerebras's
-published price for gpt-oss-120b; on a frontier model the same token counts cost 25 to 60
-times more, in the same proportions.
+70 documents, 1,538 cells with a known value. Cost is at Cerebras's published price for
+gpt-oss-120b; on a frontier model the same token counts cost 25 to 60 times more, in the same
+proportions.
 
 ![Tokens and latency per document](bench/results/chart_cost.png)
 
 ![Cells that reached the table, per spreadsheet](bench/results/chart_tabular.png)
 
-Reading accuracy is the same for every approach, 90 to 92% of cells, since it is the same
-model on the same text with the same column comments. What differs is what happens to a wrong
-value: SchemaGate stored 2 to 3 of them in 1,538 cells, flagged or held 63 to 81 for a
-person, and had no row rejected by the database. The other approaches stored 11 to 34 and
-flagged nothing. On spreadsheets the rows never reach a model: 100% of 4,000 rows for a tenth
-of a cent in total, where the naive approaches are unreliable from 200 rows and cost 8 to 15
-cents.
+Reading accuracy is the same for every approach, 93 to 94% of cells, since it is the same
+model on the same text with the same column comments. What differs is what reaches the table
+without a warning: SchemaGate let one wrong value and three blanks through in 1,538 cells,
+flagged or held 87 for a person, including two statements reported as incomplete with the
+skipped invoice numbers named, and had no row rejected by the database. The other approaches
+let 10 to 14 wrong values and 5 to 23 blanks through, lost 66 to 77 cells to database errors
+or rows that never came back, and flagged nothing. On spreadsheets the rows never reach a
+model: 100% of 4,000 rows for a tenth of a cent in total, where the naive approaches are
+unreliable from 200 rows and cost 8 to 10 cents.
 
 ## Built on
 
@@ -449,7 +452,7 @@ Environment variables only. No config file.
 | `SCHEMAGATE_DATABASE_TIMEOUT_SECONDS` | `10` | How long to wait on the database. |
 | `SCHEMAGATE_ALLOW_REQUEST_CREDENTIALS` | `false` | Lets a request name its own provider and key, which the playground uses. Off by default: it sends a credential over HTTP. |
 | `SCHEMAGATE_INSTRUCTIONS` | `{}` | Free text passed to the model per table, for what a schema cannot say. A request may override it. |
-| `SCHEMAGATE_RULES` | `{}` | Checks per table that the schema cannot express. Four kinds: `{"terms": ["subtotal", "tax"], "equals": "total"}` for a sum, `{"factors": ["quantity", "unit_price"], "equals": "line_total"}` for a product, `{"column": "vat_id", "reject": ["SE559012345601"]}` for values a column can never hold, and `{"column": "vat_id", "pattern": "[A-Z]{2}[A-Z0-9]{2,12}"}` for a shape. |
+| `SCHEMAGATE_RULES` | `{}` | Checks per table that the schema cannot express. Six kinds: `{"terms": ["subtotal", "tax"], "equals": "total"}` for a sum, `{"factors": ["quantity", "unit_price"], "equals": "line_total"}` for a product, `{"column": "vat_id", "reject": ["SE559012345601"]}` for values a column can never hold, `{"column": "vat_id", "pattern": "[A-Z]{2}[A-Z0-9]{2,12}"}` for a shape, `{"column": "vat_id", "require": true}` for a nullable column that should still be filled, and `{"column": "tax", "min": "0.01"}` or `"max"` for bounds. |
 | `SCHEMAGATE_EFFORT` | `low` | How hard the model is asked to think, where the provider exposes it. Empty sends nothing, which is what an older model needs. |
 | `SCHEMAGATE_HEADER_MODEL` | unset | A cheaper model for matching headings to columns by meaning. Unset, the extraction model does both. |
 | `SCHEMAGATE_PRICES` | `{}` | What each model costs per million tokens, `{"claude-opus-5": {"input": 5, "output": 25}}`. Without it, tokens are reported and `cost_usd` is null. |
@@ -472,7 +475,7 @@ the problem entirely by being one variable each.
 | --- | --- | --- |
 | CSV, TSV | stdlib `csv` with encoding detection | matches headings to columns, only if spelling did not |
 | XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | matches headings to columns, only if spelling did not |
-| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust) | reads the document and produces the rows |
+| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust), lines rebuilt from text positions so columns stay apart | reads the document and produces the rows |
 | Scanned PDF | local OCR, escalating to vision when OCR says it failed | reads the document and produces the rows |
 | Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then sent as an image | reads the page and produces the rows |
 

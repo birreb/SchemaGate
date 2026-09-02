@@ -905,7 +905,12 @@ def score(
         found = by_key.pop(key, None) if key is not None else None
         if found is None:
             result.cells += len(expected)
-            result.missing += len(expected)
+            # A row the approach itself reported as missing reached a person;
+            # one nobody mentioned did not.
+            if "incomplete" in outcome.flag_rules or "empty" in outcome.flag_rules:
+                result.held += len(expected)
+            else:
+                result.missing += len(expected)
             continue
         matched += 1
         index, stored = found

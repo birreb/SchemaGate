@@ -17,6 +17,7 @@ from schemagate.ingest.router import FileKind, detect_kind
 from schemagate.ingest.tabular import Table, align, read_csv, read_spreadsheet
 from schemagate.schema.factory import build_container_model
 from schemagate.schema.spec import TableSchema
+from schemagate.validate.completeness import find_uncounted
 from schemagate.validate.gate import validate
 from schemagate.validate.report import Failure
 from schemagate.validate.rules import Rule
@@ -93,7 +94,7 @@ async def process(
     kind = detect_kind(data, filename)
 
     with _timed(timings, "parse"):
-        route, rows, alignment = await _read(
+        route, rows, alignment, text = await _read(
             data,
             kind,
             schema,
@@ -106,13 +107,20 @@ async def process(
 
     with _timed(timings, "validate"), steps.step("check") as note:
         report = validate(rows, schema, rules)
-        note.detail = _describe_check(report.rows, report.failures)
+        failures = report.failures
+        if text:
+            # The rows can be checked against each other and the table; only
+            # the document can say whether they are all the rows there were.
+            uncounted = find_uncounted(text, report.rows, schema)
+            if uncounted is not None:
+                failures = (*failures, uncounted)
+        note.detail = _describe_check(report.rows, failures)
 
     return Extraction(
         table=schema.qualified_name,
         route=route,
         rows=report.rows,
-        failures=report.failures,
+        failures=failures,
         unmatched_headers=alignment[0],
         missing_columns=alignment[1],
         timings_ms=timings,
@@ -174,7 +182,12 @@ async def _read(
     steps: "_Steps | None" = None,
     spent: "list[Usage] | None" = None,
     header_extractor: Extractor | None = None,
-) -> tuple[Route, tuple[dict[str, str | None], ...], tuple[tuple[str, ...], tuple[str, ...]]]:
+) -> tuple[Route, tuple[dict[str, str | None], ...], tuple[tuple[str, ...], tuple[str, ...]], str]:
+    """Read one document into rows, and hand back its text where it had one.
+
+    The text is what the completeness check compares the rows against. A grid
+    or a photograph has no text to compare, and returns an empty string.
+    """
     steps = steps or _Steps()
     spent = spent if spent is not None else []
 
@@ -202,7 +215,12 @@ async def _read(
             note.detail = _describe_match(aligned, schema, aliases)
             note.detail += _describe_usage(matched.usage if matched else ())
 
-        return Route.TABULAR, aligned.rows, (aligned.unmatched_headers, aligned.missing_columns)
+        return (
+            Route.TABULAR,
+            aligned.rows,
+            (aligned.unmatched_headers, aligned.missing_columns),
+            "",
+        )
 
     if kind is FileKind.PDF:
         with steps.step("read") as note:
@@ -236,7 +254,7 @@ async def _read(
                         f"vision model. {len(rows)} rows returned"
                     )
                     note.detail += _describe_usage((answer.usage,))
-                return Route.VISION, rows, ((), ())
+                return Route.VISION, rows, ((), ()), ""
 
         route = Route.OCR_PDF if parsed.route == "ocr" else Route.NATIVE_PDF
         with steps.step("extract") as note:
@@ -245,7 +263,7 @@ async def _read(
             rows = _rows(answer)
             note.detail = _describe_extract(len(rows), schema, "text", answer.constrained)
             note.detail += _describe_usage((answer.usage,))
-        return route, rows, ((), ())
+        return route, rows, ((), ()), parsed.markdown
 
     if kind is FileKind.IMAGE:
         with steps.step("read") as note:
@@ -260,7 +278,7 @@ async def _read(
             rows = _rows(answer)
             note.detail = _describe_extract(len(rows), schema, "the image", answer.constrained)
             note.detail += _describe_usage((answer.usage,))
-        return Route.VISION, rows, ((), ())
+        return Route.VISION, rows, ((), ()), ""
 
     raise UnsupportedFileTypeError(f"{kind.value} uploads are not supported.")
 

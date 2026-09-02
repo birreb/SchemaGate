@@ -497,9 +497,15 @@ RULES = {
         {"column": "vat_id", "reject": [BUYER["vat"]]},
         {"column": "supplier", "reject": [BUYER["name"]]},
         {"column": "vat_id", "pattern": "[A-Z]{2}[A-Z0-9]{2,12}"},
+        {"column": "po_reference", "pattern": "PO-[0-9]{4}-[0-9]{3}"},
+        {"column": "vat_id", "require": True},
+        {"column": "tax", "min": "0.01"},
+        {"column": "shipping", "max": "500"},
     ],
     "invoice_lines": [
         {"factors": ["quantity", "unit_price"], "equals": "line_total"},
+        {"column": "quantity", "min": "0.001"},
+        {"column": "unit_price", "min": "0.01"},
     ],
 }
 

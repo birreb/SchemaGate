@@ -178,7 +178,7 @@ for that type rather than a single generic one.
 | ---------------------- | ----------------------------------- | --------------------------------------------------------------- |
 | CSV, TSV               | stdlib `csv` + `charset-normalizer` | Encoding is the real problem, not speed. Latin-1 files are common. |
 | XLSX, XLS, XLSB, ODS   | `python-calamine`                   | Rust engine. Also reads legacy `.xls`, which `openpyxl` cannot.   |
-| PDF, digital           | `pdf-inspector`                     | Rust layout parser, markdown out.                                 |
+| PDF, digital           | `pdf-inspector`                     | Rust layout parser. Lines are rebuilt from text positions, since its markdown can merge two columns into one cell and `25 26 618,54` is one number to a model. A gap wider than a word between two pieces becomes ` \| `. |
 | PDF, scanned or mixed  | `pdf-inspector` selective OCR       | Local OCR before any network call. See below.                     |
 | Images                 | `pillow` + `pillow-heif`, then vision | EXIF rotation, flattening and downscaling, then the model.      |
 
@@ -325,10 +325,22 @@ Three layers, cheapest first:
 2. Database constraints the LLM schema could not carry: `varchar(n)` length, `NOT NULL`, enum
    membership, and check constraints where they are simple enough to read from
    `pg_constraint`.
-3. Rules supplied per table in config, for what the schema cannot say. Four kinds: a sum
+3. Rules supplied per table in config, for what the schema cannot say. Six kinds: a sum
    (subtotal plus tax equals total), a product (quantity times unit price equals line total),
    values a column can never hold (your own VAT number as a supplier's, your own name as the
-   supplier), and a shape as a regular expression (a VAT number begins with a country code).
+   supplier), a shape as a regular expression (a VAT number begins with a country code), a
+   nullable column the operator still expects filled, and bounds on a number (tax is never
+   zero here, shipping is never half the invoice). The last exists because a model that
+   splits one printed amount into two that still add up passes every arithmetic rule.
+4. Completeness, for documents with a text layer. Nothing in a row says how many rows there
+   should have been, but the document names every invoice on it and the numbers share a
+   shape. When the text carries more values of that shape than the rows returned, the
+   document is reported as incomplete with the values nobody returned. The key column is
+   found, not configured: a text column whose values are distinct across the rows and share
+   one identifier shape, letters then digits. With a single row the column's name has to say
+   it is a key, and two or more other values of the shape must appear before anything is
+   said. Pure digits are never used, since postcodes and account numbers would make every
+   document look incomplete. A document with text and no rows at all is reported as empty.
    Arithmetic is compared on `Decimal` with an explicit tolerance, never on floats. The
    ingestion benchmark motivated the last three: the buyer's details stored as the seller's
    and a line total with two printed columns glued together were the commonest wrong values
