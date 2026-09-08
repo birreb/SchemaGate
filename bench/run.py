@@ -820,6 +820,10 @@ class Score:
     # Counted apart from a different value: a blank is found on review, a
     # plausible wrong number is not.
     wrong_null: int = 0
+    # A value stored where the document carries none. Counted apart from a
+    # misread value because it fits the column type and the arithmetic rules
+    # still hold, so nothing in the row disagrees with it.
+    invented: int = 0
     wrong_flagged: int = 0
     # Cells of a row the approach itself flagged and that then could not be
     # inserted. The row is not lost: it comes back with the failing cell and
@@ -931,6 +935,12 @@ def score(
                 result.wrong_flagged += 1
             elif stored.get(column) is None:
                 result.wrong_null += 1
+            elif wanted is None:
+                result.invented += 1
+                if len(result.wrong_examples) < 6:
+                    result.wrong_examples.append(
+                        f"{column}: document has no value, stored {stored.get(column)!r}"
+                    )
             else:
                 result.wrong_silent += 1
                 if len(result.wrong_examples) < 6:
@@ -1088,7 +1098,8 @@ async def main_run(args: argparse.Namespace) -> None:
                     print(
                         f"{spec.label:<28} {condition:<17} {case.id:<8} "
                         f"{scored.correct}/{scored.cells} correct, {scored.wrong_silent} wrong, "
-                        f"{scored.wrong_null} blank, {scored.rows_rejected} rows rejected, "
+                        f"{scored.invented} invented, {scored.wrong_null} blank, "
+                        f"{scored.rows_rejected} rows rejected, "
                         f"{scored.input_tokens}+{scored.output_tokens} tok, "
                         f"{shown_cost}, {scored.ms} ms, run total ${spent:.3f}"
                         + (f"  {scored.error}" if scored.error else ""),
@@ -1134,11 +1145,12 @@ def report() -> str:
         lines.append("Documents that need a model (invoices, statements, line items, receipts):")
         lines.append("")
         lines.append(
-            "| approach | docs | cells correct | wrong value stored | left blank | flagged "
-            "| held for review | rejected by DB | missing | rows inserted | phantom cols "
-            "| inconsistent docs caught | median ms | tokens in | tokens out | cost |"
+            "| approach | docs | cells correct | wrong value stored | value invented "
+            "| left blank | flagged | held for review | rejected by DB | missing "
+            "| rows inserted | phantom cols | inconsistent docs caught | median ms "
+            "| tokens in | tokens out | cost |"
         )
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for condition in CONDITIONS:
             group = [
                 s
@@ -1152,7 +1164,8 @@ def report() -> str:
             caught = sum(1 for s in broken if s.inconsistency_caught)
             lines.append(
                 f"| {condition} | {len(group)} | {pct(sum(s.correct for s in group), cells)} "
-                f"| {sum(s.wrong_silent for s in group)} | {sum(s.wrong_null for s in group)} "
+                f"| {sum(s.wrong_silent for s in group)} | {sum(s.invented for s in group)} "
+                f"| {sum(s.wrong_null for s in group)} "
                 f"| {sum(s.wrong_flagged for s in group)} | {sum(s.held for s in group)} "
                 f"| {sum(s.rejected for s in group)} | {sum(s.missing for s in group)} "
                 f"| {sum(s.rows_inserted for s in group)}/{sum(s.rows_expected for s in group)} "
@@ -1189,14 +1202,16 @@ def report() -> str:
             lines.append("Spreadsheets and CSV files:")
             lines.append("")
             lines.append(
-                "| approach | case | rows | cells correct | wrong value stored | left blank "
-                "| rejected | missing | truncated | ms | tokens in | tokens out | cost |"
+                "| approach | case | rows | cells correct | wrong value stored "
+                "| value invented | left blank | rejected | missing | truncated | ms "
+                "| tokens in | tokens out | cost |"
             )
-            lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+            lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
             for s in sorted(tabular, key=lambda s: (s.case, CONDITIONS.index(s.condition))):
                 lines.append(
                     f"| {s.condition} | {s.case} | {s.rows_inserted}/{s.rows_expected} "
-                    f"| {pct(s.correct, s.cells)} | {s.wrong_silent} | {s.wrong_null} "
+                    f"| {pct(s.correct, s.cells)} | {s.wrong_silent} | {s.invented} "
+                    f"| {s.wrong_null} "
                     f"| {s.rejected} | {s.missing} | {'yes' if s.truncated else ''} "
                     f"| {s.ms} | {s.input_tokens} | {s.output_tokens} "
                     f"| {money_sum([s])} |"

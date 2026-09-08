@@ -176,21 +176,23 @@ COMMENT ON COLUMN invoices.po_reference IS 'Our purchase order number quoted on 
 
 -- Extraction target. One row per line item on a supplier invoice. Linked to the
 -- invoice by its printed number, since a document cannot know a database id.
+-- Quantity and unit price are nullable because a fixed fee line prints an
+-- amount and neither of them.
 CREATE TABLE invoice_lines (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     invoice_number  varchar(32) NOT NULL,
     line_no         int2 NOT NULL,
     description     text NOT NULL,
-    quantity        numeric(12, 3) NOT NULL,
-    unit_price      numeric(12, 4) NOT NULL,
+    quantity        numeric(12, 3),
+    unit_price      numeric(12, 4),
     line_total      numeric(12, 2) NOT NULL,
     tax_rate        numeric(6, 3)
 );
 COMMENT ON COLUMN invoice_lines.invoice_number IS 'The invoice this line belongs to, as printed on it.';
 COMMENT ON COLUMN invoice_lines.line_no IS 'Position of the line on the invoice, counting from 1.';
-COMMENT ON COLUMN invoice_lines.quantity IS 'Quantity as printed, without the unit.';
+COMMENT ON COLUMN invoice_lines.quantity IS 'Quantity as printed, without the unit. Null when the line prints none, as a fixed fee line does.';
 COMMENT ON COLUMN invoice_lines.description IS 'The item text only, without a position number or article number in front of it.';
-COMMENT ON COLUMN invoice_lines.unit_price IS 'Price per unit before tax.';
+COMMENT ON COLUMN invoice_lines.unit_price IS 'Price per unit before tax. Null when the line prints none.';
 COMMENT ON COLUMN invoice_lines.line_total IS 'Net amount for the line before tax.';
 COMMENT ON COLUMN invoice_lines.tax_rate IS 'VAT rate for the line in percent, from the line''s own rate column when there is one.';
 

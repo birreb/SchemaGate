@@ -47,6 +47,7 @@ OUTCOMES = [
     ("correct", "correct", "#2b6a86"),
     ("flagged", "flagged or held for review", "#d9a441"),
     ("wrong_silent", "wrong value stored", "#9b3b2e"),
+    ("invented", "value invented", "#c4785f"),
     ("wrong_null", "left blank", "#b8c4cc"),
     ("rejected", "rejected by the database", "#4a5661"),
     ("missing", "row never came back", "#e6e9e7"),
@@ -103,6 +104,7 @@ def document_shares(scores: list[dict[str, Any]], model: str) -> dict[str, dict[
             "correct": sum(s["correct"] for s in group) / cells,
             "flagged": sum(s["wrong_flagged"] + s.get("held", 0) for s in group) / cells,
             "wrong_silent": sum(s["wrong_silent"] for s in group) / cells,
+            "invented": sum(s.get("invented", 0) for s in group) / cells,
             "wrong_null": sum(s.get("wrong_null", 0) for s in group) / cells,
             "rejected": sum(s["rejected"] for s in group) / cells,
             "missing": sum(s["missing"] for s in group) / cells,
@@ -230,6 +232,7 @@ def draw_documents(
 
 MISSES = [
     ("wrong_silent", "wrong value stored, nothing flagged it", "#9b3b2e"),
+    ("invented", "value invented where the document has none", "#c4785f"),
     ("wrong_null", "left blank, nothing flagged it", "#b8c4cc"),
     ("rejected", "row rejected by the database", "#4a5661"),
     ("missing", "row never came back", "#e6e9e7"),
@@ -261,7 +264,7 @@ def draw_misses(
         ax.bar(x, values, bottom=bottoms, color=colour, width=0.6, edgecolor="white", linewidth=0.6)
         for index, value in enumerate(values):
             if value >= 6:
-                dark = key in {"wrong_silent", "rejected"}
+                dark = key in {"wrong_silent", "invented", "rejected"}
                 ax.text(
                     index,
                     bottoms[index] + value / 2,

@@ -527,6 +527,12 @@ class Line:
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
+    # A fixed fee: the document prints the description and the amount, and
+    # leaves the quantity and unit price cells empty. The values are still
+    # held here because the invoice totals are built from them, but the
+    # expected row carries null for both, since the document does not say
+    # how the amount was arrived at.
+    lump_sum: bool = False
 
     @property
     def total(self) -> Decimal:
@@ -629,8 +635,8 @@ class Invoice:
                 "invoice_number": self.number,
                 "line_no": index + 1,
                 "description": line.description,
-                "quantity": str(line.quantity),
-                "unit_price": str(line.unit_price),
+                "quantity": None if line.lump_sum else str(line.quantity),
+                "unit_price": None if line.lump_sum else str(line.unit_price),
                 "line_total": str(line.total),
             }
             # Only scored where the document prints a rate per line.
@@ -855,13 +861,14 @@ def meta_list(
 def item_cells(
     inv: Invoice, line: Line, index: int, loc: dict[str, Any], keys: list[str]
 ) -> list[str]:
+    unit_name = loc["hour"] if line.is_service else loc["unit_name"]
     values = {
         "pos": str(index + 1),
         "sku": line.sku,
         "desc": line.description,
-        "qty": number(line.quantity, loc),
-        "unit_name": loc["hour"] if line.is_service else loc["unit_name"],
-        "price": money(line.unit_price, loc),
+        "qty": "" if line.lump_sum else number(line.quantity, loc),
+        "unit_name": "" if line.lump_sum else unit_name,
+        "price": "" if line.lump_sum else money(line.unit_price, loc),
         "rate": number(line.tax_rate, loc),
         "amount": money(line.total, loc),
     }
@@ -1271,10 +1278,12 @@ def theme_mono(pdf: Pdf, inv: Invoice) -> None:
     row(header)
     row("-" * 74)
     for index, line in enumerate(inv.lines):
+        quantity = "" if line.lump_sum else number(line.quantity, loc)
+        price = "" if line.lump_sum else money(line.unit_price, loc)
         row(
             f"{index + 1:>3} {line.sku:<7} {line.description[:28]:<28} "
-            f"{number(line.quantity, loc):>6} "
-            f"{money(line.unit_price, loc):>12} {money(line.total, loc):>13}"
+            f"{quantity:>6} "
+            f"{price:>12} {money(line.total, loc):>13}"
         )
     row("-" * 74)
     for label, value, last in totals_rows(inv):
@@ -1957,6 +1966,19 @@ def main() -> None:
         broken = index % 9 == 4
         if broken:
             invoice.printed_total_error = Decimal(rng.choice([10, 90, 100, -9, 27]))
+        # Every fifth invoice with a line-item case prints one line as a fixed
+        # fee: a description and an amount, with the quantity and unit price
+        # cells empty. Nothing on the document says how the amount was reached,
+        # so a quantity and a unit price in the row came from the model. The
+        # line is chosen for a quantity other than 1, so reading the amount as
+        # one unit is wrong rather than right by luck. Neither draws on `rng`,
+        # which would move every later document.
+        fee = index < 15 and index % 5 == 3
+        if fee:
+            candidates = [one for one in invoice.lines if one.is_service] or [
+                one for one in invoice.lines if one.quantity != 1
+            ]
+            (candidates or invoice.lines)[0].lump_sum = True
         name = f"invoice_{index:02d}_{supplier['locale']}_{invoice.theme}.pdf"
         (DATA / name).write_bytes(render_invoice(invoice))
         cases.append(
@@ -1983,7 +2005,8 @@ def main() -> None:
                     expected=invoice.expected_lines(),
                     instructions=INSTRUCTIONS["invoice_lines"],
                     rules=RULES["invoice_lines"],
-                    notes=f"theme {invoice.theme}",
+                    notes=f"theme {invoice.theme}"
+                    + (", one line is a fixed fee with no quantity or unit price" if fee else ""),
                 )
             )
 
