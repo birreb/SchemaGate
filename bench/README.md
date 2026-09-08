@@ -97,10 +97,10 @@ both, and `invoice_lines.quantity` and `unit_price` are nullable so that the gro
 inserts. The amount is never one unit at that price, so a row that fills the two cells in
 invented them, and no check can say so: the product rule `quantity * unit_price =
 line_total` skips a null term, and any pair whose product is the amount satisfies it.
-On one of the three the layout has a tax rate column, and the text layer rebuilt from
-positions drops empty cells, so the rate sits where the quantity would be. An approach
-sent the PDF itself can see the two blank cells and one working from the text layer
-cannot.
+On one of the three the layout has a tax rate column, and dropping the two empty cells put
+that rate where the quantity belongs. The fixture is what found it. The text layer now
+places a short row in its table's columns, so the line reads `Installation labour | | | 19
+| 4.833,50`.
 
 ## Results
 

@@ -158,6 +158,28 @@ COLUMN_GAP = 1.2
 # on one line. Superscripts and slightly misaligned cells still join it.
 SAME_LINE = 0.4
 
+# Lines that have to stand together before they are read as a table, and the
+# columns such a table has to have. Two lines side by side are a label and a
+# value as often as they are a table, and two columns cannot lose one and
+# still be read.
+SHORTEST_TABLE = 3
+NARROWEST_TABLE = 3
+
+# A step down the page wider than this many times the tightest step so far
+# ends the table. Rows of one table are evenly spaced, and what follows the
+# last of them, a totals column or the next block of the letter, sits after a
+# wider space than the rows left between themselves.
+BLOCK_GAP = 1.35
+
+
+@dataclass(frozen=True)
+class _Cell:
+    """One column's text on one line, and the span of page it covers."""
+
+    text: str
+    left: float
+    right: float
+
 
 def layout_lines(items: Sequence[Positioned]) -> str:
     """Lines of text in reading order, with column gaps marked by ` | `.
@@ -166,6 +188,11 @@ def layout_lines(items: Sequence[Positioned]) -> str:
     ordered left to right. Two pieces separated by more than a word's worth of
     space are different columns and are joined with a bar; anything closer is
     joined with a space, and the spaces inside a piece are left as they are.
+
+    A cell a row leaves empty is kept as an empty column, so what follows it
+    stays under its own heading. A line billed as a fixed fee prints no
+    quantity and no unit price, and dropping those two cells puts the tax
+    rate beside it where the quantity belongs.
     """
     pages: dict[int, list[Positioned]] = {}
     for item in items:
@@ -180,16 +207,133 @@ def layout_lines(items: Sequence[Positioned]) -> str:
                 lines[-1][1].append(item)
             else:
                 lines.append((item.y, [item]))
-        for _, pieces in lines:
-            pieces.sort(key=lambda piece: piece.x)
-            text = pieces[0].text
-            for previous, current in pairwise(pieces):
-                gap = current.x - (previous.x + previous.width)
-                joiner = " | " if gap > COLUMN_GAP * max(previous.font_size, 6.0) else " "
-                text += joiner + current.text
-            rendered.append(text.strip())
+        rendered.extend(
+            _rendered([_cells_of(pieces) for _, pieces in lines], [y for y, _ in lines])
+        )
         rendered.append("")
     return "\n".join(rendered).strip()
+
+
+def _cells_of(pieces: list[Positioned]) -> list[_Cell]:
+    """One line's pieces as cells, joined across gaps narrower than a column."""
+    pieces.sort(key=lambda piece: piece.x)
+    cells = [_Cell(pieces[0].text, pieces[0].x, pieces[0].x + pieces[0].width)]
+    for previous, current in pairwise(pieces):
+        gap = current.x - (previous.x + previous.width)
+        right = current.x + current.width
+        if gap > COLUMN_GAP * max(previous.font_size, 6.0):
+            cells.append(_Cell(current.text, current.x, right))
+        else:
+            last = cells[-1]
+            cells[-1] = _Cell(f"{last.text} {current.text}", last.left, right)
+    return cells
+
+
+def _rendered(rows: Sequence[Sequence[_Cell]], baselines: Sequence[float]) -> list[str]:
+    """A page's lines as text, with the empty cells of a table kept in place.
+
+    A block's columns are only used once one of its rows has a cell in every
+    one of them. Label and value pairs down a page also stand in a block, and
+    their values start wherever the label ends, so the columns read off them
+    are an artefact of the labels' lengths and no row is short of anything.
+    """
+    lines = [_plain(row) for row in rows]
+    for start, stop in _blocks(rows, baselines):
+        columns = _columns(rows[start:stop])
+        if len(columns) < NARROWEST_TABLE:
+            continue
+        placed = [_placed(row, columns) for row in rows[start:stop]]
+        if not any(row is not None and len(row) == len(columns) for row in placed):
+            continue
+        for offset, row in enumerate(placed):
+            if row is not None and len(row) < len(columns):
+                lines[start + offset] = _joined(row)
+    return lines
+
+
+def _plain(row: Sequence[_Cell]) -> str:
+    return " | ".join(cell.text for cell in row).strip()
+
+
+def _placed(row: Sequence[_Cell], columns: Sequence[tuple[float, float]]) -> dict[int, str] | None:
+    """Each cell of a row under its column, or nothing when two cells share one.
+
+    A shared column means the columns were read off some other row that ran
+    across this one, and joining the two cells would drop a break the line
+    does have. The line is left as it stands instead.
+    """
+    slots: dict[int, str] = {}
+    for cell in row:
+        at = next(
+            (
+                index
+                for index, (left, right) in enumerate(columns)
+                if cell.left < right and left < cell.right
+            ),
+            None,
+        )
+        if at is None or at in slots:
+            return None
+        slots[at] = cell.text
+    return slots
+
+
+def _joined(row: dict[int, str]) -> str:
+    """A row's cells with its empty columns kept, apart from the outer ones.
+
+    Empty columns before the first cell and after the last are dropped. A
+    total sitting under the right of a table is not a row of it, and treating
+    it as one would put bars in front of every such line.
+    """
+    text = row[min(row)]
+    for index in range(min(row) + 1, max(row) + 1):
+        text += " |" + (f" {row[index]}" if index in row else "")
+    return text.strip()
+
+
+def _blocks(rows: Sequence[Sequence[_Cell]], baselines: Sequence[float]) -> list[tuple[int, int]]:
+    """Runs of evenly spaced neighbouring lines that carry more than one column.
+
+    A line of running text is one cell wide and ends the run, and so does a
+    step down the page wider than the rows have been leaving between
+    themselves. A table's columns are then worked out from its own rows,
+    rather than from an address block above it or a totals column below.
+    """
+    blocks: list[tuple[int, int]] = []
+    start: int | None = None
+    pitch = 0.0
+
+    def close(stop: int) -> None:
+        if start is not None and stop - start >= SHORTEST_TABLE:
+            blocks.append((start, stop))
+
+    for index, row in enumerate(rows):
+        if len(row) < 2:
+            close(index)
+            start, pitch = None, 0.0
+            continue
+        if start is None:
+            start, pitch = index, 0.0
+            continue
+        gap = baselines[index - 1] - baselines[index]
+        if pitch and gap > BLOCK_GAP * pitch:
+            close(index)
+            start, pitch = index, 0.0
+        else:
+            pitch = min(pitch, gap) if pitch else gap
+    close(len(rows))
+    return blocks
+
+
+def _columns(rows: Sequence[Sequence[_Cell]]) -> list[tuple[float, float]]:
+    """The spans of page a block's columns cover, merged where cells overlap."""
+    columns: list[list[float]] = []
+    for left, right in sorted((cell.left, cell.right) for row in rows for cell in row):
+        if columns and left <= columns[-1][1]:
+            columns[-1][1] = max(columns[-1][1], right)
+        else:
+            columns.append([left, right])
+    return [(left, right) for left, right in columns]
 
 
 def _layout_text(parser: Any, data: bytes) -> str:

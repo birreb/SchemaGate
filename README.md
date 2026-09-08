@@ -475,7 +475,7 @@ the problem entirely by being one variable each.
 | --- | --- | --- |
 | CSV, TSV | stdlib `csv` with encoding detection | matches headings to columns, only if spelling did not |
 | XLSX, XLS, XLSB, ODS | [calamine](https://github.com/tafia/calamine) (Rust) | matches headings to columns, only if spelling did not |
-| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust), lines rebuilt from text positions so columns stay apart | reads the document and produces the rows |
+| PDF with a text layer | [pdf-inspector](https://github.com/firecrawl/pdf-inspector) (Rust), lines rebuilt from text positions, so columns stay apart and a cell a row leaves empty keeps its place | reads the document and produces the rows |
 | Scanned PDF | local OCR, escalating to vision when OCR says it failed | reads the document and produces the rows |
 | Images: PNG, JPEG, WEBP, TIFF, GIF, HEIC | normalised, then sent as an image | reads the page and produces the rows |
 
