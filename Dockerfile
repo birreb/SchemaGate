@@ -5,7 +5,7 @@
 # container has not chosen a provider yet and should not have to rebuild to
 # change their mind. Build with --build-arg EXTRAS="server,postgres,anthropic"
 # for a smaller image with only what you use.
-FROM python:3.14-slim AS build
+FROM python:3.15-slim AS build
 
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
@@ -25,7 +25,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --extra $(echo "$EXTRAS" | sed "s/,/ --extra /g")
 
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # Runs unprivileged. The service reads a database and parses files people
 # upload, so it has no business owning anything in its own filesystem.
